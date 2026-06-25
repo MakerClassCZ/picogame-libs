@@ -16,6 +16,16 @@ Copy the modules a game needs into **`CIRCUITPY/lib/`**. The game's own
 > The `stage`/`ugame` compatibility shim (run unmodified python-ugame games on picogame) lives in its
 > own repo, [**picogame-stage**](https://github.com/MakerClassCZ/picogame-stage).
 
+### …or with circup
+[`circup`](https://github.com/adafruit/circup) installs the right `.mpy` for your board's
+CircuitPython version straight onto `CIRCUITPY`, and tracks updates:
+
+```sh
+circup bundle-add MakerClassCZ/picogame-libs     # register this bundle (one time)
+circup install picogame_shapes                   # pulls its deps too (e.g. ui -> font)
+circup update                                     # later: refresh installed modules
+```
+
 ---
 
 ## Scaffolding - stand a game up fast
@@ -31,7 +41,7 @@ Copy the modules a game needs into **`CIRCUITPY/lib/`**. The game's own
 |---|---|
 | `picogame_font` | `render_text()` / `render_text_pal()` - rasterise a string (any `fontio` font, e.g. bundled `terminalio.FONT`) into a `picogame.Bitmap`. `Label` - single-line text sprite. |
 | `picogame_bitfont` | `render_text(pg, text, fg=...)` - a tiny 8x8, 4-shade **outlined** bitmap font baked to a PAL8 Bitmap; the dark outline keeps text readable over gameplay with no HUD box. |
-| `picogame_ui` | Scene-layer widgets (`SceneLabel`, `SceneBox`, `SceneMenu`, `HudBar`, `GridCursor`) + immediate-mode (`Menu`, `TextBox`). Camera-independent HUD. |
+| `picogame_ui` | Scene-layer widgets (`SceneLabel`, `SceneBox`, `SceneMenu`, `HudBar`, `GridCursor`) + immediate-mode (`Menu`, `TextBox`). Camera-independent HUD. `SceneLabel.prewarm(longest)` pre-sizes a label's buffer (and warms its glyphs) up front, so a long line shown only later doesn't hit a fragmentation `MemoryError`. |
 | `picogame_options` | `OptionsMenu` - settings/value rows (choice / stepper / toggle / action) built on `ui.SceneBox`. (Provisional, outside the frozen `ui` core.) |
 
 ## Art in code
