@@ -84,7 +84,13 @@ def fade(palette, base, t, target=0, skip=None):
     for i in range(len(base)):
         if i == skip:
             continue
-        r, g, b = _unwire(base[i])
-        palette[i] = _wire(int(r + (tr - r) * t),
-                           int(g + (tg - g) * t),
-                           int(b + (tb - b) * t))
+        c = base[i]                                   # inline un/rewire: no per-entry tuple/call alloc
+        n = ((c >> 8) | (c << 8)) & 0xFFFF
+        r = (n >> 11) & 0x1F
+        g = (n >> 5) & 0x3F
+        b = n & 0x1F
+        r = int(r + (tr - r) * t)
+        g = int(g + (tg - g) * t)
+        b = int(b + (tb - b) * t)
+        m = ((r & 0x1F) << 11) | ((g & 0x3F) << 5) | (b & 0x1F)
+        palette[i] = ((m >> 8) | (m << 8)) & 0xFFFF

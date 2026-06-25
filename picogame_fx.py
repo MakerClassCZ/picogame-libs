@@ -158,6 +158,7 @@ class Fade:
         S = self.cell
         col = self.color
         bayer = _BAYER
+        fill = view.fill_rect                          # bind once: this inner loop runs per dither cell
         by0, by1 = vy // S, (vy + vh - 1) // S
         bx0, bx1 = vx // S, (vx + vw - 1) // S
         for by in range(by0, by1 + 1):
@@ -165,7 +166,7 @@ class Fade:
             sy = by * S - vy
             for bx in range(bx0, bx1 + 1):
                 if brow[bx & 3] < lvl:
-                    view.fill_rect(bx * S - vx, sy, S, S, col)
+                    fill(bx * S - vx, sy, S, S, col)
 
 
 class Tween:
@@ -287,13 +288,27 @@ class Sky:
         self.h = max(1, h)
         self.top = top
         self.bottom = bottom
+        self._key = None                               # row-colour LUT, rebuilt only when top/bottom change
+        self._lut = array.array("H", bytes(2 * self.h))
         self.sd = pg.StripDraw(self._draw, x, y, w, h)
         scene.add(self.sd, fixed=True)
 
     def _draw(self, view, vx, vy, vw, vh):
-        for ly in range(vh):
-            t = (vy + ly - self.y) / self.h
-            view.fill_rect(0, ly, vw, 1, _lerp565(self.top, self.bottom, t))
+        key = (self.top, self.bottom)
+        if key != self._key:                           # rebuild only on a colour change (day-night stays mutable)
+            self._key = key
+            lut = self._lut
+            hh = self.h
+            for r in range(hh):
+                lut[r] = _lerp565(self.top, self.bottom, r / hh)
+        lut = self._lut
+        fill = view.fill_rect
+        y0 = self.y
+        hh = self.h
+        for ly in range(vh):                           # per scanline: an array index, no float divide/lerp
+            r = vy + ly - y0
+            if 0 <= r < hh:
+                fill(0, ly, vw, 1, lut[r])
 
 
 class Scanlines:
@@ -318,9 +333,8 @@ class Scanlines:
         row = self._row
         blit = view.blit
         step = self.step
-        for ly in range(vh):
-            if (vy + ly) % step == 0:
-                blit(row, 0, ly)                        # one blit per darkened scanline (checker dither)
+        for ly in range((-vy) % step, vh, step):        # stride straight to the aligned rows (no per-row modulo)
+            blit(row, 0, ly)                            # one blit per darkened scanline (checker dither)
 
 
 class InvertFlash:

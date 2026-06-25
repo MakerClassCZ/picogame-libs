@@ -143,8 +143,9 @@ class Buttons:
                     self._released |= bit
         else:                                            # --- digitalio polling backend (raw) ---
             raw = 0
+            active_low = self._active_low
             for io, bit in self._pairs:
-                if ((not io.value) if self._active_low else io.value):
+                if ((not io.value) if active_low else io.value):
                     raw |= bit
             self.state = raw
         # track held-frame counts (for repeat())
@@ -152,7 +153,8 @@ class Buttons:
         s = self.state
         i = 0
         b = 1
-        while b < (1 << _NBITS):
+        limit = 1 << _NBITS
+        while b < limit:
             h[i] = h[i] + 1 if (s & b) else 0
             i += 1
             b <<= 1
@@ -179,7 +181,9 @@ class Buttons:
     def repeat(self, button, delay=15, interval=4):
         """Auto-repeat for a SINGLE button: True the frame it's pressed, then every `interval`
         frames once it's been held `delay` frames. Great for menu / grid movement."""
-        i = (button.bit_length() - 1) if button else 0
+        b = button; i = 0           # bit index of the mask (int.bit_length isn't in MicroPython-WASM)
+        while b > 1:
+            b >>= 1; i += 1
         c = self._hold[i]
         if c == 1:
             return True

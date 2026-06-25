@@ -37,7 +37,7 @@ class SceneLabel:
         self.font = font
         self.fg = fg
         self.bg = bg
-        bmp, _, _ = picogame_font.render_text(pg, font, " ", fg, bg)
+        bmp, _, _, self._buf, _ = picogame_font._render_into(pg, font, " ", fg, bg, None)
         self.sprite = pg.Sprite(bmp, x, y)
         scene.add(self.sprite, fixed=True)  # fixed = camera-independent
         self._text = None
@@ -51,8 +51,27 @@ class SceneLabel:
             self.sprite.visible = False     # (dirty-rect erases the old text box cleanly)
             return
         self.sprite.visible = True
-        bmp, _, _ = picogame_font.render_text(self.pg, self.font, text, self.fg, self.bg)
-        self.sprite.bitmap = bmp            # swap (dirty-rect handles old/new bounds)
+        bmp, _, _, self._buf, _ = picogame_font._render_into(self.pg, self.font, text, self.fg, self.bg, self._buf)
+        self.sprite.bitmap = bmp            # swap (dirty-rect handles old/new bounds); buffer reused
+
+    def prewarm(self, longest):
+        """Reserve the glyph buffer NOW, on the fresh/contiguous startup heap, so it isn't first
+        allocated later on a fragmented one (a MemoryError risk). Renders nothing visible; later set()
+        calls reuse this buffer instead of re-allocating.
+
+        Pass the LONGEST line as a STRING (recommended): it sizes the buffer AND warms the font glyph
+        cache for exactly those characters - so a banner shown only at game-over allocates nothing then.
+        Pass an INT char-count to only size the buffer (when you know the width but not the glyphs; the
+        glyphs are then cached on the first set())."""
+        if isinstance(longest, int):
+            fw, fh = self.font.get_bounding_box()[:2]
+            need = fw * max(1, longest) * fh
+            if self._buf is None or len(self._buf) < need:
+                self._buf = bytearray(need)
+        else:
+            _, _, _, self._buf, _ = picogame_font._render_into(
+                self.pg, self.font, str(longest), self.fg, self.bg, self._buf)
+        self.sprite.visible = False         # nothing is shown
 
 
 class SceneBox:
@@ -130,15 +149,20 @@ class HudBar:
 
     def label(self, font, x, y, fg, text=" "):
         """A text sprite stored in this bar; update it with set_text(), then redraw()."""
-        bmp, _, _ = picogame_font.render_text(self.pg, font, text, fg, self.bg)
+        text = str(text)
+        bmp, _, _, data, _ = picogame_font._render_into(self.pg, font, text, fg, self.bg, None)
         s = self.pg.Sprite(bmp, x, y)
-        s.data = (font, fg)                 # remembered for set_text (Sprite.data slot)
+        s.data = (font, fg, data, text)     # (font, fg, reused glyph buffer, last rendered text)
         self.sprites.append(s)
         return s
 
     def set_text(self, sprite, text):
-        font, fg = sprite.data
-        bmp, _, _ = picogame_font.render_text(self.pg, font, str(text), fg, self.bg)
+        font, fg, buf, last = sprite.data
+        text = str(text)
+        if text == last:                    # value unchanged -> skip the render entirely (callers may
+            return                          # refresh the HUD often for other widgets; don't re-rasterize)
+        bmp, _, _, data, _ = picogame_font._render_into(self.pg, font, text, fg, self.bg, buf)
+        sprite.data = (font, fg, data, text)
         sprite.bitmap = bmp
 
     def redraw(self):

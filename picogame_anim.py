@@ -33,11 +33,12 @@ class FrameAnim:
         if adv:
             self.t -= adv / self.fps
             self.i += adv
-            if self.i >= len(self.frames):
+            n = len(self.frames)
+            if self.i >= n:
                 if self.loop:
-                    self.i %= len(self.frames)
+                    self.i %= n
                 else:
-                    self.i = len(self.frames) - 1
+                    self.i = n - 1
                     self.done = True
             self.sprite.frame = self.frames[self.i]
 
