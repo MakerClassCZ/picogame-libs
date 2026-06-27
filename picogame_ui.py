@@ -15,7 +15,16 @@
 
 import picogame_font
 
+# The immediate text twin lives in picogame_font; re-export it here so both twins are discoverable
+# together: ui.Label (immediate, draw via pg.render) vs ui.SceneLabel (scene-layer, painted by refresh).
+Label = picogame_font.Label
+
 LINE_H = 12
+
+
+def _txt(x):
+    # None -> "" (a blank/hidden field), not the literal "None"; everything else -> str.
+    return "" if x is None else str(x)
 
 # tick() return values for Menu / SceneMenu / GridCursor: an index/cell on A (confirm), CANCEL on B
 # (back), or None while still navigating. Text menus can also exit via a "Back" item; graphical/tile
@@ -23,10 +32,26 @@ LINE_H = 12
 CANCEL = -2
 
 
+def _label_bitmap(pg, font, text, fg, bg, buf):
+    """Rasterize `text` into a reused RGB565 buffer via Canvas.text (composited in C - NO glyph cache,
+    no _MASKS) and return (bitmap, buf). The buffer grows only when a longer string needs it, so a
+    label can't fragment the heap as it repaints."""
+    fw, fh = font.get_bounding_box()[:2]
+    w = fw * max(1, len(text))
+    need = w * fh * 2
+    if buf is None or len(buf) < need:
+        buf = bytearray(need)
+    cv = pg.Canvas(w, fh, buffer=buf)
+    cv.clear(bg)
+    cv.text(0, 0, text, fg, font)
+    return pg.Bitmap(buf, w, fh, format=pg.RGB565, frames=1, stride=w), buf
+
+
 class SceneLabel:
-    """One line of text that lives IN the scene as a `fixed` (camera-independent) layer, so it stays
-    put while the world scrolls and scene.refresh() paints it (no extra draw call). The scene-layer
-    twin of the immediate picogame_font.Label. Updates by swapping its sprite's bitmap.
+    """One line of text pinned in the scene as a `fixed` (camera-independent) layer; scene.refresh()
+    paints it (no draw call). Text is composited via Canvas.text (C) into a reused buffer - NO glyph
+    cache, no fragmentation - while keeping the sprite model (dirty-rect repaint-on-change, visible).
+    The scene-layer twin of the immediate `ui.Label` (= picogame_font.Label).
 
     NAMING: scene-layer widgets are `Scene*` (SceneLabel / SceneBox / SceneMenu) - use them OVER a
     live scene (one still calling scene.refresh()). Their immediate twins (Label / TextBox / Menu)
@@ -37,51 +62,43 @@ class SceneLabel:
         self.font = font
         self.fg = fg
         self.bg = bg
-        bmp, _, _, self._buf, _ = picogame_font._render_into(pg, font, " ", fg, bg, None)
+        self._buf = None
+        bmp, self._buf = _label_bitmap(pg, font, " ", fg, bg, self._buf)
         self.sprite = pg.Sprite(bmp, x, y)
         scene.add(self.sprite, fixed=True)  # fixed = camera-independent
         self._text = None
 
     def set(self, text):
-        text = str(text)
+        text = _txt(text)
         if text == self._text:
             return
         self._text = text
-        if not text.strip():                # empty/blank -> hide fully, leaving no bg patch
+        if not text.strip():                # empty/blank (incl. None) -> hide fully, leaving no bg patch
             self.sprite.visible = False     # (dirty-rect erases the old text box cleanly)
             return
         self.sprite.visible = True
-        bmp, _, _, self._buf, _ = picogame_font._render_into(self.pg, self.font, text, self.fg, self.bg, self._buf)
+        bmp, self._buf = _label_bitmap(self.pg, self.font, text, self.fg, self.bg, self._buf)
         self.sprite.bitmap = bmp            # swap (dirty-rect handles old/new bounds); buffer reused
 
-    def prewarm(self, longest):
-        """Reserve the glyph buffer NOW, on the fresh/contiguous startup heap, so it isn't first
-        allocated later on a fragmented one (a MemoryError risk). Renders nothing visible; later set()
-        calls reuse this buffer instead of re-allocating.
-
-        Pass the LONGEST line as a STRING (recommended): it sizes the buffer AND warms the font glyph
-        cache for exactly those characters - so a banner shown only at game-over allocates nothing then.
-        Pass an INT char-count to only size the buffer (when you know the width but not the glyphs; the
-        glyphs are then cached on the first set())."""
-        if isinstance(longest, int):
-            fw, fh = self.font.get_bounding_box()[:2]
-            need = fw * max(1, longest) * fh
-            if self._buf is None or len(self._buf) < need:
-                self._buf = bytearray(need)
-        else:
-            _, _, _, self._buf, _ = picogame_font._render_into(
-                self.pg, self.font, str(longest), self.fg, self.bg, self._buf)
+    def reserve(self, chars):
+        """Reserve the text buffer NOW, on the fresh/contiguous startup heap, for up to `chars`
+        characters - so a longer line shown only later (e.g. a game-over banner) doesn't allocate on a
+        fragmented heap (a MemoryError risk). Renders nothing."""
+        fw, fh = self.font.get_bounding_box()[:2]
+        need = fw * max(1, chars) * fh * 2
+        if self._buf is None or len(self._buf) < need:
+            self._buf = bytearray(need)
         self.sprite.visible = False         # nothing is shown
 
 
 class SceneBox:
-    """A multi-line text box that lives IN the scene: a Canvas panel + SceneLabel rows as FIXED
-    layers, toggled with show()/hide(). Because the single scene.refresh() per frame paints it, it's
-    ONE present (no flicker) and composites correctly over a scrolling / animated world.
+    """A multi-line text box pinned in the scene, toggled with show()/hide(). A buffer-less StripDraw:
+    scene.refresh() composites its panel + border + text straight into the live strip (Canvas.clear /
+    frame3d / Canvas.text) - ZERO retained RAM (no Canvas panel), one present, no flicker over a
+    scrolling/animated world.
 
     The scene-layer twin of the immediate `TextBox`. Use SceneBox for a dialog/status box OVER a LIVE
-    scene (overworld talk, in-game popup). Use `TextBox` (immediate, pg.render) only on a STATIC
-    screen with no scene.refresh under it - over a live scene it fights scene.refresh and flickers.
+    scene (overworld talk, in-game popup). Use `TextBox` (immediate, pg.render) on a STATIC screen.
 
         dlg = ui.SceneBox(scene, pg, font, 8, H - 70, W - 16, 62, fg, bg, nlines=3)
         dlg.show(["Villager:", "Beware the slimes", "in the tall grass."])   # call ONCE
@@ -92,48 +109,85 @@ class SceneBox:
     def __init__(self, scene, pg, font, x, y, w, h, fg, bg, nlines=3,
                  key=None, border=None):
         self.pg = pg
-        self.w, self.h = w, h
+        self.scene = scene
+        self.font = font
+        self.x, self.y, self.w, self.h = x, y, w, h
+        self.fg = fg
         self.bg = bg
         self.border = border
-        self.key = key if key is not None else pg.rgb565(255, 0, 255)   # transparent-when-hidden
-        self.box = pg.Canvas(w, h, transparent=self.key)
-        self.box.move(x, y)
-        self.box.clear(self.key)
-        scene.add(self.box, fixed=True)                                 # fixed: ignore the camera
-        self.labels = [SceneLabel(scene, pg, font, x + 8, y + 7 + i * LINE_H, fg, bg)
-                       for i in range(nlines)]
-        self.hide()
+        self.nlines = nlines
+        self._lines = [""] * nlines
+        self._hidden = True
+        # On-demand StripDraw (always_dirty=False): repaints only when invalidate()d or overlapped, so
+        # a static dialog doesn't re-rasterize+re-push every frame. Every content/visibility change below
+        # MUST invalidate() (the box is invisible until something does). Keeps full height: when hidden,
+        # the callback draws nothing and invalidate() repaints the rect as bg -> a clean erase.
+        self._sd = pg.StripDraw(self._draw, x, y, w, h, always_dirty=False)
+        scene.add(self._sd, fixed=True)
+
+    def _draw(self, view, vx, vy, vw, vh):
+        # The view spans the WHOLE scene region (vx = region origin, not self.x) - so draw at ABSOLUTE
+        # screen coords minus (vx, vy), and fill only our own rect (view.clear would fill the full width).
+        if self._hidden:
+            return                           # hidden: draw nothing -> the rect shows bg/world (erased)
+        x0 = self.x - vx
+        y0 = self.y - vy
+        view.fill_rect(x0, y0, self.w, self.h, self.bg)
+        if self.border is not None:
+            view.frame3d(x0, y0, self.w, self.h, self.border, self.bg)
+        for i, ln in enumerate(self._lines):
+            if ln:
+                view.text(x0 + 8, y0 + 7 + i * LINE_H, ln, self.fg, self.font)
 
     def show(self, lines):
-        """Fill the panel + set the text, then reveal it. Call once (not per frame) - the scene
-        paints it from then on."""
-        self.box.clear(self.bg)
-        if self.border is not None:
-            self.box.frame3d(0, 0, self.w, self.h, self.border, self.bg)
-        for i, lb in enumerate(self.labels):
-            lb.set(lines[i] if i < len(lines) else " ")
+        """Set the text + reveal. Call once (not per frame) - scene.refresh() paints it on change."""
+        for i in range(self.nlines):
+            self._lines[i] = _txt(lines[i]) if i < len(lines) else ""
+        self._hidden = False
+        self._sd.invalidate()
 
     def hide(self):
-        self.box.clear(self.key)                                        # panel -> fully transparent
-        for lb in self.labels:
-            lb.set("")                                                  # SceneLabel("") hides the sprite
+        self._hidden = True
+        self._sd.invalidate()                # repaint the rect once (as bg) -> clean erase, then idle
 
     def set_line(self, i, text):
-        """Update ONE line in place - no Canvas/border redraw. Lets a menu repaint just the rows
-        whose cursor marker changed (each SceneLabel.set is its own small dirty rect)."""
-        if 0 <= i < len(self.labels):
-            self.labels[i].set(text)
+        """Update ONE line; invalidate so the next scene.refresh() repaints the box with it."""
+        if 0 <= i < self.nlines:
+            self._lines[i] = _txt(text)
+            self._sd.invalidate()
+
+
+class _HudLabel:
+    """A text field handle returned by HudBar.label(); update with `.set(text)` (same verb as
+    SceneLabel.set), then call the bar's draw()."""
+    __slots__ = ("x", "y", "fg", "font", "text")
+
+    def __init__(self, x, y, fg, font, text):
+        self.x = x
+        self.y = y
+        self.fg = fg
+        self.font = font
+        self.text = _txt(text)
+
+    def set(self, text):
+        self.text = _txt(text)
 
 
 class HudBar:
     """A HUD strip drawn OUTSIDE the scene, in a region the scene reserves with
-    Scene(..., top=/bottom=). The scene never paints there, so the strip costs nothing
-    per frame and keeps no buffer of its own - `redraw()` fills the background and blits
-    its sprites via pg.render, and you call it only when the HUD changes (score, lives).
+    Scene(..., top=/bottom=). The scene never paints there; `draw()` composites the bar and
+    pushes it via one pg.render.
 
-    Add Sprites (hearts, gauges) with add(); add text with label(); update via .visible /
-    swap / set_text(), then redraw(). `buffer` is any scratch strip buffer (e.g. the
-    scene's bufA). Background is a flat colour (for a gradient bar use a Canvas instead)."""
+    **Zero retained RAM.** The bar is a buffer-less ``StripDraw``: on draw, ``pg.render`` walks
+    the band in strips and the callback composites bg + icons + text straight into the live strip
+    via ``Canvas.text`` / ``Canvas.blit`` - NO band buffer, NO glyph cache (``_MASKS``), NO per-label
+    Bitmap/Sprite. So the bar can't fragment the heap as it did when text was added incrementally,
+    and its cost is independent of the band's size (a full-height side panel is still 0 RAM).
+    (Requires firmware where pg.render accepts a StripDraw; the sim mirrors it.)
+
+    Add Sprites (hearts, gauges) with add(); add text with label() -> a handle you update with
+    `handle.set(text)`; then call draw(). x/y are screen-absolute. `buffer` is any scratch strip
+    buffer (e.g. the scene's bufA) used only as the per-strip push scratch."""
 
     def __init__(self, pg, display, buffer, x, y, w, h, bg):
         self.pg = pg
@@ -141,78 +195,84 @@ class HudBar:
         self.buffer = buffer
         self.x, self.y, self.w, self.h = x, y, w, h
         self.bg = bg
-        self.sprites = []
+        self._labels = []                   # _HudLabel handles
+        self._icons = []                    # icon sprites blitted into the band
+        self._sd = pg.StripDraw(self._draw, x, y, w, h)   # buffer-less -> 0 retained RAM
+
+    def _draw(self, view, vx, vy, vw, vh):
+        # view-local (0,0) == screen (vx, vy); items are stored screen-absolute, so subtract (vx,vy).
+        view.clear(self.bg)
+        for spr in self._icons:
+            if getattr(spr, "visible", True):
+                view.blit(spr.bitmap, spr.x - vx, spr.y - vy, getattr(spr, "frame", 0))
+        for lb in self._labels:
+            if lb.text:
+                view.text(lb.x - vx, lb.y - vy, lb.text, lb.fg, lb.font)
 
     def add(self, sprite):
-        self.sprites.append(sprite)
+        """An icon Sprite (heart, gauge) blitted into the bar at its own x/y on draw()."""
+        self._icons.append(sprite)
         return sprite
 
     def label(self, font, x, y, fg, text=" "):
-        """A text sprite stored in this bar; update it with set_text(), then redraw()."""
-        text = str(text)
-        bmp, _, _, data, _ = picogame_font._render_into(self.pg, font, text, fg, self.bg, None)
-        s = self.pg.Sprite(bmp, x, y)
-        s.data = (font, fg, data, text)     # (font, fg, reused glyph buffer, last rendered text)
-        self.sprites.append(s)
-        return s
+        """Add a text field; returns a handle - update it with `handle.set(text)` (the same .set as
+        SceneLabel), then call `draw()`. The text is composited directly, no per-label sprite."""
+        lb = _HudLabel(x, y, fg, font, text)
+        self._labels.append(lb)
+        return lb
 
-    def set_text(self, sprite, text):
-        font, fg, buf, last = sprite.data
-        text = str(text)
-        if text == last:                    # value unchanged -> skip the render entirely (callers may
-            return                          # refresh the HUD often for other widgets; don't re-rasterize)
-        bmp, _, _, data, _ = picogame_font._render_into(self.pg, font, text, fg, self.bg, buf)
-        sprite.data = (font, fg, data, text)
-        sprite.bitmap = bmp
-
-    def redraw(self):
-        """Repaint the strip (flat bg + visible sprites). Call only on HUD changes."""
-        # pg.render already skips invisible sprites, so pass the list directly (no temp list).
-        self.pg.render(self.display, self.sprites, self.buffer,
+    def draw(self):
+        """Repaint the bar (bg + icons + text) and push it. Call only on HUD changes."""
+        self.pg.render(self.display, [self._sd], self.buffer,
                        self.x, self.y, self.x + self.w, self.y + self.h, background=self.bg)
 
 
 class TextBox:
-    """A screen-space multi-line box: a filled rect (via pg.render) + text lines.
-    For dialog/battle/menu screens that aren't a scrolling scene."""
+    """A screen-space multi-line box (immediate, for a STATIC screen). A buffer-less StripDraw: ONE
+    pg.render composites bg + (optional border) + text rows straight into the strip via Canvas.text -
+    no glyph cache, no per-row sprite, ONE present (no blank-fill flash, no row pop-in). draw() skips
+    when the text is unchanged. The immediate twin of SceneBox (use SceneBox over a LIVE scene)."""
 
-    def __init__(self, pg, font, x, y, w, h, fg, bg, maxlines=6):
+    def __init__(self, pg, font, x, y, w, h, fg, bg, maxlines=6, border=None):
         self.pg = pg
+        self.font = font
         self.x, self.y, self.w, self.h = x, y, w, h
+        self.fg = fg
         self.bg = bg
+        self.border = border
+        self.maxlines = maxlines
+        self._lines = []
         self._drawn = None                  # last drawn lines - skip the repaint if unchanged
-        self._sprites = []                  # reused row-sprite list for the one-pass render
-        self._labels = [picogame_font.Label(pg, font, x + 6, y + 6 + i * LINE_H, fg, bg)
-                        for i in range(maxlines)]
+        self._sd = pg.StripDraw(self._draw, x, y, w, h)
 
-    def draw(self, display, buffer, lines, force=False):
-        # callers often draw every frame with the SAME text (a static dialog/box) -> skip when
-        # nothing changed. When we DO draw, render the background AND every text row in ONE
-        # pg.render pass (like HudBar.redraw): a SINGLE present, so there's no blank-fill flash
-        # and no row-by-row pop-in. force=True repaints even if unchanged (the screen under us
-        # was wiped, e.g. a full-screen pg.render, so our pixels are gone).
-        if not force and lines == self._drawn:
-            return
-        self._drawn = list(lines)
-        sprites = self._sprites
-        del sprites[:]
-        for i, ln in enumerate(lines):
-            if i >= len(self._labels):
-                break
-            lb = self._labels[i]
-            lb.set(ln)                      # rebuilds only on change; position is fixed (__init__)
-            if lb.sprite is not None:
-                sprites.append(lb.sprite)
-        self.pg.render(display, sprites, buffer,
+    def _draw(self, view, vx, vy, vw, vh):
+        view.clear(self.bg)
+        if self.border is not None:
+            view.frame3d(0, self.y - vy, self.w, self.h, self.border, self.bg)
+        for i, ln in enumerate(self._lines):
+            if ln:
+                view.text(6, (self.y + 6 + i * LINE_H) - vy, ln, self.fg, self.font)
+
+    def _render(self, display, buffer):
+        self.pg.render(display, [self._sd], buffer,
                        self.x, self.y, self.x + self.w, self.y + self.h, background=self.bg)
 
+    def draw(self, display, buffer, lines, force=False):
+        # Skip when unchanged (callers often redraw a static box every frame). force=True repaints
+        # even if unchanged (the screen under us was wiped, e.g. a full-screen pg.render).
+        if not force and list(lines) == self._drawn:
+            return
+        self._lines = [_txt(x) for x in lines[:self.maxlines]]
+        self._drawn = list(lines)
+        self._render(display, buffer)
+
     def draw_line(self, display, buffer, i, text):
-        """Repaint a SINGLE row in place (its label rect only) - lets a menu update just the rows
-        that changed (cursor move) without touching the rest of the box. Atomic per row: Label.draw
-        is one pg.render (bg + glyphs), so no flash."""
-        lb = self._labels[i]
-        lb.set(text)
-        lb.draw(display, buffer)
+        """Update ONE row and repaint the box (one StripDraw push - the whole box is composited in C,
+        so a per-row repaint isn't worth a separate pass)."""
+        if 0 <= i < len(self._lines):
+            self._lines[i] = str(text)
+        self._drawn = None
+        self._render(display, buffer)
 
 
 def _menu_step(btn, sel, top, rows, n, paged):
@@ -289,16 +349,12 @@ class Menu:
         key = (self.sel, self.top)
         if key == self._drawn:
             return
-        t = self._title_rows
-        if self._drawn is None or self._drawn[1] != self.top:   # first draw or scroll
-            lines = [self.title] if self.title else []
-            for i in range(self.top, min(self.top + self.rows, len(self.items))):
-                lines.append(self._row_text(i))
-            self.box.draw(display, buffer, lines, force=force)   # forward force: after a wipe the
-            #          box's pixels are gone, so it MUST repaint even if its lines are unchanged
-        else:                                                   # moved within the window
-            for s in (self._drawn[0], self.sel):
-                self.box.draw_line(display, buffer, t + (s - self.top), self._row_text(s))
+        # Always repaint the whole box on a change: it's a buffer-less StripDraw composited in C in
+        # ONE pg.render (no per-row pop-in / flash), so the old incremental 2-row path isn't needed.
+        lines = [self.title] if self.title else []
+        for i in range(self.top, min(self.top + self.rows, len(self.items))):
+            lines.append(self._row_text(i))
+        self.box.draw(display, buffer, lines, force=force)
         self._drawn = key
 
 

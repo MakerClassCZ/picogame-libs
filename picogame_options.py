@@ -1,6 +1,6 @@
 # picogame_options: a settings/value menu, built ON the core picogame_ui (SceneBox + rows).
 #
-# PROVISIONAL - kept OUT of the frozen `ui` core so it can keep evolving without touching tuned,
+# PROVISIONAL - kept OUT of the core `ui` widgets so it can keep evolving without touching tuned,
 # shipped widgets. The pick-an-index `ui.Menu` can't carry an adjustable value per row; this can
 # (difficulty choice, volume stepper, sound toggle, "Start" action) - the settings / shop pattern.
 #

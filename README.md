@@ -41,8 +41,8 @@ circup update                                     # later: refresh installed mod
 |---|---|
 | `picogame_font` | `render_text()` / `render_text_pal()` - rasterise a string (any `fontio` font, e.g. bundled `terminalio.FONT`) into a `picogame.Bitmap`. `Label` - single-line text sprite. |
 | `picogame_bitfont` | `render_text(pg, text, fg=...)` - a tiny 8x8, 4-shade **outlined** bitmap font baked to a PAL8 Bitmap; the dark outline keeps text readable over gameplay with no HUD box. |
-| `picogame_ui` | Scene-layer widgets (`SceneLabel`, `SceneBox`, `SceneMenu`, `HudBar`, `GridCursor`) + immediate-mode (`Menu`, `TextBox`). Camera-independent HUD. `SceneLabel.prewarm(longest)` pre-sizes a label's buffer (and warms its glyphs) up front, so a long line shown only later doesn't hit a fragmentation `MemoryError`. |
-| `picogame_options` | `OptionsMenu` - settings/value rows (choice / stepper / toggle / action) built on `ui.SceneBox`. (Provisional, outside the frozen `ui` core.) |
+| `picogame_ui` | Scene-layer widgets (`SceneLabel`, `SceneBox`, `SceneMenu`) + immediate (`HudBar`, `TextBox`, `Menu`) + `GridCursor`. Text is composited in C via `Canvas.text` (no glyph cache); the panels are buffer-less `StripDraw` (`HudBar`/`SceneBox`/`SceneMenu` = ~0 retained RAM). Update text with `handle.set(text)`, repaint with `draw()`. `SceneLabel.reserve(chars)` reserves a label's text buffer up front, so a long line shown only later doesn't hit a fragmentation `MemoryError`. |
+| `picogame_options` | `OptionsMenu` - settings/value rows (choice / stepper / toggle / action) built on `ui.SceneBox`. (Provisional, kept separate from the core `ui` widgets so it can keep evolving.) |
 
 ## Art in code
 | Module | Provides |
@@ -58,7 +58,7 @@ circup update                                     # later: refresh installed mod
 ## Gameplay helpers
 | Module | Provides |
 |---|---|
-| `picogame_collide` | Zero-allocation collision read straight off sprites: `hit` (box/box), `hit_point`, `is_within`. |
+| `Sprite.overlaps` / `Sprite.near` | Zero-alloc collision built into Sprite: `a.overlaps(b)` (AABB box; `b` = sprite/point/rect), `a.near(b, r)` (circular). |
 | `picogame_pool` | `Pool` - reusable fixed-size sprite pool (`spawn / free / free_all`, `.items`, `count`) for bullets/enemies/pipes. |
 | `picogame_anim` | `FrameAnim` / `AnimatedSprite` - drive a Sprite's frame from a time-based sequence (no more `(frame//4)%n`). |
 | `picogame_tiles` | `TileFlags` - per-tile metadata bitfield keyed by tile index (solid / hazard / ladder ...); turns tilemap collision into a flag lookup. |
@@ -74,7 +74,7 @@ circup update                                     # later: refresh installed mod
 | Module | Provides |
 |---|---|
 | `picogame_audio` | `Audio` - convenience layer over `audiopwmio` + `audiocore` + `audiomixer` (PWM audio): load/play WAVs, overlapping sfx + music. `tone()` test beep. |
-| `picogame_synth` | `Synth` - on-device sound via `synthio`, no WAV files / sample RAM: `sine / saw / triangle / square / noise / note / pitch_bend`, `load_midi`. |
+| `picogame_synth` | `Synth` - on-device sound via `synthio`, no WAV files / sample RAM: `sine / saw / triangle / square / noise / note / pitch_bend`, `load_midi`. `Drone` - a held note with live `frequency`/`amplitude` for engine / siren sounds. |
 
 ## Persistence & streaming
 | Module | Provides |
