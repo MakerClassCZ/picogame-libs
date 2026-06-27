@@ -111,6 +111,43 @@ class Synth:
         self.mixer.voice[0].stop()
 
 
+class Drone:
+    """A continuously-HELD note for engine / siren / drone sounds. Press it once, then call
+    set(freq, amp) every frame: synthio reads the note's live .frequency/.amplitude per audio
+    buffer, so the pitch tracks whatever you feed it (e.g. an engine note driven by car speed).
+    Cheap - one held note on the SFX voice.
+
+        eng = snd.Drone(s, waveform=snd.SAW)
+        eng.start()                                   # at race start
+        eng.set(70 + 270 * rev, amp=0.2 + 0.5 * rev)  # each frame, rev = speed/max in 0..1
+        eng.stop()                                    # on the title / results screen
+    """
+
+    def __init__(self, synth, waveform=None, amplitude=0.35, attack=0.03, release=0.12):
+        self.synth = synth
+        self.note = synthio.Note(
+            frequency=110.0, waveform=waveform if waveform is not None else SAW,
+            envelope=synthio.Envelope(attack_time=attack, decay_time=0.0,
+                                      sustain_level=1.0, release_time=release),
+            amplitude=amplitude)
+        self.playing = False
+
+    def start(self):
+        if not self.playing:
+            self.synth.press(self.note)
+            self.playing = True
+
+    def set(self, frequency, amplitude=None):
+        self.note.frequency = frequency
+        if amplitude is not None:
+            self.note.amplitude = amplitude
+
+    def stop(self):
+        if self.playing:
+            self.synth.release(self.note)
+            self.playing = False
+
+
 def load_midi(path, sample_rate=22050, waveform=None, envelope=None, tempo=120, ppqn=240):
     """Load a .mid file as a synthio.MidiTrack to play on the music voice (Synth.music)."""
     with open(path, "rb") as f:

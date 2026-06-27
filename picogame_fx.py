@@ -214,7 +214,7 @@ class Camera:
         cam.apply()                                  # no shake
         # --- or with shake: ---
         ox, oy = cam.follow(player.x, player.y).offset()
-        shaker.update(ox, oy)
+        shaker.tick(ox, oy)
     """
 
     def __init__(self, scene, w, h, lerp=0.18, world_w=0, world_h=0):
