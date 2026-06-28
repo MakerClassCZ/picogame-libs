@@ -10,12 +10,18 @@ import board
 import picogame as pg
 
 
-def setup(display=None, strip_h=24, background=0, fast=True, top=0, bottom=0, left=0, right=0,
+def setup(display=None, strip_h=None, background=0, fast=True, top=0, bottom=0, left=0, right=0,
           rgb444=False):
     """Take over the display and return (scene, buffer_a, buffer_b).
 
     Disables displayio auto-refresh, clears the root group, allocates two strip
-    buffers (full width x `strip_h`) and builds a Scene.
+    buffers (full width x `strip_h`, each `width*strip_h*2` bytes -> these two are the
+    bulk of setup's RAM) and builds a Scene.
+
+    `strip_h` defaults to `picogame.STRIP_H` (board compile-time default: 8 on DMA boards, 24
+    without). Measured (RP2040): on a DMA board smaller `strip_h` is BOTH less RAM AND faster
+    (the DMA/render overlap is finer); without DMA, larger wins (fewer blocking sends). A typical
+    dirty-rect repaint is insensitive to it. Pass an int to override per game. See /memory/.
 
     `top`/`bottom`/`left`/`right` reserve a border (px) the scene won't render into, so it
     paints only the inner play rect - draw the border yourself (HUD bars, side panels,
@@ -32,6 +38,8 @@ def setup(display=None, strip_h=24, background=0, fast=True, top=0, bottom=0, le
     so one codebase runs optimally on ST7789 and safely (RGB565) on ILI9341 - no per-board code."""
     if rgb444 == "auto":
         rgb444 = getattr(pg, "RGB444_SUPPORTED", False)
+    if strip_h is None:
+        strip_h = getattr(pg, "STRIP_H", 8)   # board compile-time default (CIRCUITPY_PICOGAME_STRIP_H; 8 DMA/24 not)
     display = display if display is not None else board.DISPLAY
     display.auto_refresh = False
     try:

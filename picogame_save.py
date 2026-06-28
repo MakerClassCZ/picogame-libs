@@ -26,9 +26,11 @@
 import microcontroller
 import struct
 
+from micropython import const
+
 _NVM = microcontroller.nvm
 _MAGIC = b"PG"            # format marker
-_VERSION = 1
+_VERSION = const(1)
 
 
 def _key_hash(key):

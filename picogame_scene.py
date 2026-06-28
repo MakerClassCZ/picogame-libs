@@ -116,13 +116,15 @@ def load_bank(pg, bank):
             "audio": audio, "sounds": sounds}
 
 
-def load(pg, scene, display=None, strip_h=24, font=None, bank=None):
+def load(pg, scene, display=None, strip_h=None, font=None, bank=None):
     display = display if display is not None else board.DISPLAY
     display.auto_refresh = False
     try:
         display.root_group = None
     except Exception:
         pass
+    if strip_h is None:
+        strip_h = getattr(pg, "STRIP_H", 8)   # board default (8 DMA / 24 not)
     w = display.width
     v = View()
     v.bufA = bytearray(w * strip_h * 2)

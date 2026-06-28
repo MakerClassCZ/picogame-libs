@@ -13,8 +13,10 @@
 #   spr = pg.Sprite(bmp, x, y)                            # place anywhere; scale up via spr.scale
 #   # symbols: bf.HEART, bf.ARROW_R ... e.g. bf.render_text(pg, "LIVES " + bf.HEART*3)
 
-GLYPH_W = 8
-GLYPH_H = 8
+from micropython import const
+
+GLYPH_W = const(8)
+GLYPH_H = const(8)
 
 # a few handy symbol glyph codes (see the 0..31 row of the font)
 ARROW_U = "\x01"; ARROW_D = "\x02"; ARROW_R = "\x03"; ARROW_L = "\x04"

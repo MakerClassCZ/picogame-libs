@@ -5,12 +5,14 @@
 
 import time
 
+from micropython import const
+
 try:
     import asyncio
 except ImportError:
     asyncio = None
 
-_NS = 1_000_000_000
+_NS = const(1_000_000_000)
 _now = time.monotonic_ns        # bound once: avoids a per-tick attribute lookup
 _sleep = time.sleep
 

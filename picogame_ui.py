@@ -15,11 +15,13 @@
 
 import picogame_font
 
+from micropython import const
+
 # The immediate text twin lives in picogame_font; re-export it here so both twins are discoverable
 # together: ui.Label (immediate, draw via pg.render) vs ui.SceneLabel (scene-layer, painted by refresh).
 Label = picogame_font.Label
 
-LINE_H = 12
+LINE_H = const(12)
 
 
 def _txt(x):
@@ -29,7 +31,7 @@ def _txt(x):
 # tick() return values for Menu / SceneMenu / GridCursor: an index/cell on A (confirm), CANCEL on B
 # (back), or None while still navigating. Text menus can also exit via a "Back" item; graphical/tile
 # menus use B (the cancel). Pick whichever fits - both are supported.
-CANCEL = -2
+CANCEL = const(-2)
 
 
 def _label_bitmap(pg, font, text, fg, bg, buf):

@@ -20,10 +20,11 @@ import board
 import synthio
 from audiopwmio import PWMAudioOut
 from audiomixer import Mixer
+from micropython import const
 
 # ---- built-in oscillator waveforms (signed 16-bit, one cycle) ----
-_LEN = 256
-_AMP = 28000
+_LEN = const(256)
+_AMP = const(28000)
 
 
 def sine():

@@ -23,11 +23,15 @@ import board
 import os
 
 import digitalio
+from micropython import const
 
 # Logical buttons - a SUPERSET; a board maps the subset it has.
 UP, DOWN, LEFT, RIGHT, A, B, X, Y = (1 << i for i in range(8))
 L1, L2, R1, R2, START, SELECT = (1 << i for i in range(8, 14))
-_NBITS = 14
+_NBITS = const(14)
+# NOT const(): the Buttons class body below re-exports `ALL` as a class attribute (the
+# `L1, ..., ALL = L1, ..., ALL` line), and assigning to a const-declared name is a compile error
+# under mpy-cross ("can't assign to expression") - even though CPython/the sim tolerate it.
 ALL = (1 << _NBITS) - 1
 
 # name -> mask, for parsing the settings.toml PICOGAME_BUTTONS string
