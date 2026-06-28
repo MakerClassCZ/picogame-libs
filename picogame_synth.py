@@ -90,14 +90,21 @@ class Synth:
         self.mixer.voice[1].level = sfx_level        # voice 1: live synth SFX
         self.synth = synthio.Synthesizer(sample_rate=sample_rate, channel_count=1)
         self.mixer.voice[1].play(self.synth)
+        self._last_sfx = None        # last one-shot SFX; released on the next sfx so HELD notes
+        #                              (a Drone engine/siren) and the music voice are never cut off
 
     def sfx(self, n):
-        """Play an SFX note. Retriggers its LFOs first so repeats sound identical."""
+        """Play a one-shot SFX note (monophonic: cuts off the PREVIOUS sfx, but leaves HELD notes -
+        a Drone engine/siren - and the music voice playing). Retriggers its LFOs so repeats sound
+        identical. (Was release_all_then_press, which silenced a held Drone on every SFX.)"""
         for lfo in (n.bend, n.amplitude,
                     n.filter.frequency if isinstance(n.filter, synthio.Biquad) else None):
             if isinstance(lfo, synthio.LFO):
                 lfo.retrigger()
-        self.synth.release_all_then_press(n)
+        if self._last_sfx is not None:           # release only the previous SFX, never held drones
+            self.synth.release(self._last_sfx)
+        self.synth.press(n)
+        self._last_sfx = n
 
     def press(self, n):
         self.synth.press(n)
