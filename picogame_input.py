@@ -38,13 +38,33 @@ ALL = (1 << _NBITS) - 1
 NAMES = {"UP": UP, "DOWN": DOWN, "LEFT": LEFT, "RIGHT": RIGHT, "A": A, "B": B, "X": X, "Y": Y,
          "L1": L1, "L2": L2, "R1": R1, "R2": R2, "START": START, "SELECT": SELECT}
 
-# Built-in per-board profiles (active-low + a pull). PicoPad = face buttons on board.SW_*.
-PICOPAD = (
+# Built-in per-board profiles (active-low + a pull). A profile is a sequence of
+# (board-attribute-name, button-bit): the name is looked up on `board` (or microcontroller.pin
+# for a bare 'GPn') -- so each entry below doubles as a worked example of the format you'd pass
+# as Buttons(profile=...) or write into settings.toml on a board we don't list yet.
+PICOPAD = (                                   # PicoPad: face buttons on board.SW_*
     ("SW_UP", UP), ("SW_DOWN", DOWN), ("SW_LEFT", LEFT), ("SW_RIGHT", RIGHT),
     ("SW_A", A), ("SW_B", B), ("SW_X", X), ("SW_Y", Y),
 )
+# uGame-style boards (Radomir Dopieralski): D-pad + face buttons O / X / Z.
+# Logical A = the primary-action "O" button; B = "X"; the third "Z" -> logical X.
+UGAME = (
+    ("BUTTON_UP", UP), ("BUTTON_DOWN", DOWN), ("BUTTON_LEFT", LEFT), ("BUTTON_RIGHT", RIGHT),
+    ("BUTTON_O", A), ("BUTTON_X", B), ("BUTTON_Z", X),
+)
+THUMBY_COLOR = (                              # D-pad + A/B + two bumpers (->X/Y) + menu (->START)
+    ("BUTTON_UP", UP), ("BUTTON_DOWN", DOWN), ("BUTTON_LEFT", LEFT), ("BUTTON_RIGHT", RIGHT),
+    ("BUTTON_A", A), ("BUTTON_B", B),
+    ("BUTTON_BUMPER_LEFT", X), ("BUTTON_BUMPER_RIGHT", Y), ("BUTTON_MENU", START),
+)
 PROFILES = {                                  # add new boards here, keyed by board.board_id
     "pajenicko_picopad_game": PICOPAD,
+    "pimoroni_picosystem": PICOPAD,           # exposes the same board.SW_* names as the PicoPad
+    "ugame22": UGAME,
+    "deshipu_ugame_s3": UGAME,
+    "tinycircuits_thumby_color": THUMBY_COLOR,
+    # VIDI X (vidi_x): the D-pad is an analog ladder -- board.BTN_L_R / BTN_UP_DOWN are one ADC pin
+    # per axis, which the digital (pin -> button) model can't decode -> no built-in profile.
 }
 
 
