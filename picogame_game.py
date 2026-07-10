@@ -14,9 +14,11 @@ def setup(display=None, strip_h=None, background=0, fast=True, top=0, bottom=0, 
           rgb444=False):
     """Take over the display and return (scene, buffer_a, buffer_b).
 
-    Disables displayio auto-refresh, clears the root group, allocates two strip
-    buffers (full width x `strip_h`, each `width*strip_h*2` bytes -> these two are the
-    bulk of setup's RAM) and builds a Scene.
+    Disables displayio auto-refresh, clears the root group and builds a Scene. On a
+    busdisplay (SPI) target it also allocates two strip buffers (full width x `strip_h`,
+    each `width*strip_h*2` bytes -> these two are the bulk of setup's RAM). On a
+    FRAMEBUFFER target (WASM playground, Fruit Jam DVI) the scene composites straight
+    into the framebuffer and the returned buffers are None.
 
     `strip_h` defaults to `picogame.STRIP_H` (board compile-time default: 8 on DMA boards, 24
     without). Measured (RP2040): on a DMA board smaller `strip_h` is BOTH less RAM AND faster
