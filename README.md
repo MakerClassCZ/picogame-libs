@@ -75,6 +75,7 @@ circup update                                     # later: refresh installed mod
 |---|---|
 | `picogame_audio` | `Audio` - convenience layer over `audiopwmio` + `audiocore` + `audiomixer` (PWM audio): load/play WAVs, overlapping sfx + music. `tone()` test beep. |
 | `picogame_synth` | `Synth` - on-device sound via `synthio`, no WAV files / sample RAM: `sine / saw / triangle / square / noise / note / pitch_bend`, `load_midi`. `Drone` - a held note with live `frequency`/`amplitude` for engine / siren sounds. |
+| `picogame_sfx` | `Kit` - the **signature picogame sound**: 10 ready-made SFX (`blip / coin / powerup / zap / pew / jump / hit / hurt / boom / explosion`) locked by hardware listening, one call each + `tick()` per frame. Self-contained theme over `picogame_synth`; a different palette is a peer file (`picogame_sfx_<name>`). |
 
 ## Persistence & streaming
 | Module | Provides |
