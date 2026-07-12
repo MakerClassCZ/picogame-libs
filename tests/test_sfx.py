@@ -94,17 +94,17 @@ def test_hurt_interrupts_hit_not_reverse():
     assert s.log[-1] is hurtv and s.log.count(kit._v["hit"][0][1]) == 1
 
 
-def test_hit_pitch_rotation():
+def test_hit_cutoff_rotation():
     s = Spy()
     kit = picogame_sfx.Kit(s)
     f = []
     for _ in range(3):
         kit.hit()
-        f.append(kit._rot_note.frequency)
+        f.append(kit._rot_note.filter.frequency)   # rotation now varies the crack's LP cutoff
     assert len(set(f)) == 3
-    prev = kit._rot_note.frequency
+    prev = kit._rot_note.filter.frequency
     kit.hit(rotate=False)
-    assert kit._rot_note.frequency == prev
+    assert kit._rot_note.filter.frequency == prev
 
 
 def test_explosion_is_single_smear_voice():
