@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 build-*/
 mpy/
-# tests live on the `tests` branch, not on main (main = library source only)
-tests/
+# tests/ lives here beside the libs it tests (so _bootstrap resolves the LIVE source, not a
+# stale copy). It never enters the circup bundle: release.yml stages only root picogame_*.py.
 .DS_Store
 node_modules/
 dist/
