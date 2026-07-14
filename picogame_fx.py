@@ -383,7 +383,15 @@ class InvertFlash:
         # PicoPad); a custom-board launcher sets that from its INVERT, so games need not pass `normal`.
         self.display = display
         self.frames = frames
-        self.normal = PANEL_INVERTED if normal is None else normal
+        if normal is not None:
+            self.normal = normal
+        elif type(display).__name__ == "Framebuffer":
+            # A RAM framebuffer (RP2350 DVI / Fruit Jam / the WASM playground) has NO panel INVON, so
+            # its resting state is un-inverted - regardless of PANEL_INVERTED, which tracks an ST7789
+            # panel's init (INVON). Without this a framebuffer board would "restore" to invert-on.
+            self.normal = False
+        else:
+            self.normal = PANEL_INVERTED
         self.t = 0
         self._ok = True       # cleared if the target has no hardware invert (a Framebuffer/DVI panel
                               # or the WASM playground) -> pulse() degrades to a silent no-op there
