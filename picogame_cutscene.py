@@ -116,7 +116,10 @@ def play(pg, display, buffer, btn, path, pal=None, w=320, h=240, scale=None, ban
     None). `caption` is the one-line convenience for caption_lines=[caption]; `clock`
     (picogame_clock) paces the wait loop (a plain sleep without it). IMMEDIATE mode - the image
     lives on the LCD, nothing refreshes: the caller fades its live scene OUT first and MUST
-    scene.invalidate() after (the image clobbered the LCD)."""
+    scene.invalidate() after (the image clobbered the LCD).
+
+    Returns the button that dismissed it - btn.A or btn.B - so a title beat can offer two
+    choices (e.g. caption "A: start   B: options"); returns None if it auto-advanced (auto_hold)."""
     if btn is None and not auto_hold:
         raise ValueError("play needs btn (wait for A/B) or auto_hold > 0")
     dst = _LCD if _LCD is not None else display
@@ -139,11 +142,13 @@ def play(pg, display, buffer, btn, path, pal=None, w=320, h=240, scale=None, ban
     while True:
         if btn is not None:
             btn.poll()
-            if btn.just_pressed(btn.A) or btn.just_pressed(btn.B):
-                return
+            if btn.just_pressed(btn.A):
+                return btn.A
+            if btn.just_pressed(btn.B):
+                return btn.B
         t += 1
         if auto_hold and t > auto_hold:
-            return
+            return None
         if clock is not None:
             clock.tick()
         else:
