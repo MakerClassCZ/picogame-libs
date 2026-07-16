@@ -42,6 +42,37 @@ def setup(display=None, strip_h=None, background=0, fast=True, top=0, bottom=0, 
         rgb444 = getattr(pg, "RGB444_SUPPORTED", False)
     if strip_h is None:
         strip_h = getattr(pg, "STRIP_H", 8)   # board compile-time default (CIRCUITPY_PICOGAME_STRIP_H; 8 DMA/24 not)
+    # PICOGAME_INVERT in settings.toml = the panel's correct resting inversion state. ST7789 panels
+    # come in BOTH polarities and the board init picks one (PicoPad sends INVON) - a user with the
+    # other panel variant sees a negative. When the key IS SET, enforce it here (pg.invert sends
+    # INVON/INVOFF - free, no pixel data); unset = leave the board init alone (other boards may not
+    # send INVON at all). picogame_fx.PANEL_INVERTED reads the same key, so the InvertFlash
+    # hit-flash stays calibrated with it - one toml key fixes both.
+    # Two siblings for the other panel-variant/QoL fixes reachable on a board.c-built display:
+    #   PICOGAME_MADCTL     absolute MADCTL byte (0x36 register: mirrors + BGR order). Absolute on
+    #                       purpose - the register can't be read back, so bit-flips would need a
+    #                       per-board baseline. PicoPad values: 0x60 stock | 0x68 BGR panel |
+    #                       0xA0 mounted 180 deg | 0xA8 both. (DIY boards: use the custom-board
+    #                       PICOGAME_FLIP/PICOGAME_BGR keys instead - their launcher rebuilds.)
+    #   PICOGAME_BRIGHTNESS backlight, integer PERCENT 0-100 (settings.toml has no floats).
+    try:
+        import os
+        _inv = os.getenv("PICOGAME_INVERT")
+        _mad = os.getenv("PICOGAME_MADCTL")
+        _bri = os.getenv("PICOGAME_BRIGHTNESS")
+        if _inv is not None or _mad is not None or _bri is not None:
+            import board as _board
+            _d = _board.DISPLAY
+            if _inv is not None:
+                _on = (_inv != 0) if isinstance(_inv, int) else \
+                    str(_inv).strip().lower() not in ("", "0", "false", "no")
+                pg.invert(_d, _on)
+            if _mad is not None:
+                _d.bus.send(0x36, bytes([int(str(_mad), 0) & 0xFF]))
+            if _bri is not None:
+                _d.brightness = max(0, min(100, int(_bri))) / 100
+    except Exception:
+        pass                                  # no board.DISPLAY / no invert (sim variants): ignore
     backend, is_fb = resolve_display(display)
     if is_fb:
         # Framebuffer target (WASM playground, Fruit Jam DVI): the scene composites straight
