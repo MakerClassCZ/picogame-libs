@@ -143,20 +143,19 @@ def resolve_display(display=None):
         if getattr(raw, "color_depth", 16) != 16:
             raise ValueError("picogame needs a 16-bit framebuffer "
                              "(set CIRCUITPY_DISPLAY_COLOR_DEPTH=16 in settings.toml)")
+        # The engine composites each dirty band OFF-SCREEN (a private scratch strip) and memcpys only
+        # the finished band into the live scanout buffer, so the beam never samples a half-composited
+        # region (no flicker) and never wire-order bytes (no colour tearing). Colour handling: if the
+        # scanout HW byte-swaps 16bpp pixels on read (`pixel_byte_swap=True`, the default), the buffer
+        # must hold NATIVE RGB565 so the engine byte-swaps the scratch before the copy; a build that
+        # disabled the HW swap reports `pixel_byte_swap=False` and we store the engine's WIRE order
+        # directly. Absent property (normal firmware) -> assume native. Two-way firmware skew-tolerant.
+        native = bool(getattr(raw, "pixel_byte_swap", True))
         try:
-            fb = pg.Framebuffer(raw, raw.width, raw.height, native_rgb565=True)
+            fb = pg.Framebuffer(raw, raw.width, raw.height, native_rgb565=native)
         except TypeError:
             raise RuntimeError("this firmware's picogame.Framebuffer lacks native_rgb565 - "
                                "flash a newer picogame build")
-        # Tear-free full repaints: let the Scene wait for the DVI frame boundary before a
-        # large/full-screen composite (e.g. a camera move). Opt-in + best-effort: absent on SPI
-        # panels and older firmware, where it simply stays off (no sync).
-        waiter = getattr(raw, "wait_for_vblank", None)
-        if waiter is not None:
-            try:
-                fb.sync = waiter
-            except AttributeError:
-                pass
         return fb, True
     return display, False
 
