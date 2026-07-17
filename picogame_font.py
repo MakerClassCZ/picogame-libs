@@ -36,37 +36,47 @@ def render_text_pal(pg, font, text, fg, bg=None):
 
 
 # Per-glyph rasterized masks, cached so the slow per-pixel fontio read happens ONCE per glyph.
-# Key: (id(font), codepoint) -> list of fh row `bytes` (each fw long, value 1=fg / 0=bg). Composing a
-# string then memcpys whole rows into the buffer (data[d:d+fw] = rows[gy]) -- no per-pixel Python and
-# no per-render allocation. (Cache RAM ~ unique-chars * fw * fh, one-off: ~a few KB for a HUD charset.)
+# Key: (id(font), codepoint) -> ONE flat `bytes` of length fw*fh (row-major, value 1=fg / 0=bg).
+# ONE object per glyph instead of fh separate row objects = ~4-7x less cache RAM (each small `bytes`
+# carries a ~fixed object header, so fh-per-glyph headers dominated). This matters on the RP2040: the
+# old list-of-rows cache grew ~0.5 KB per never-seen glyph and starved the heap over a long session.
+# Composing memcpys row slices (memoryview, no per-row alloc) into the buffer.
 _MASKS = {}
 
 
-def _glyph_rows(font, cp, fw, fh):
-    """Return one glyph as fh row-`bytes`, rasterizing it ONCE (the slow per-pixel read) then caching."""
+def _glyph_flat(font, cp, fw, fh):
+    """One glyph as a flat fw*fh `bytes` (row-major, 1=fg/0=bg), rasterized ONCE then cached."""
     key = (id(font), cp)
-    rows = _MASKS.get(key)
-    if rows is not None:
-        return rows
+    flat = _MASKS.get(key)
+    if flat is not None:
+        return flat
     g = font.get_glyph(cp)
-    if g is None:                            # blank cell: one shared empty row, repeated
-        rows = [bytes(fw)] * fh
+    if g is None:                            # blank cell
+        flat = bytes(fw * fh)
     else:
         sheet = g.bitmap                     # shared 1-bit tile sheet
         tiles_per_row = sheet.width // fw
         ti = g.tile_index
         tx = (ti % tiles_per_row) * fw
         ty = (ti // tiles_per_row) * fh
-        rows = []
+        b = bytearray(fw * fh)
+        p = 0
         for gy in range(fh):
-            r = bytearray(fw)
             sy = ty + gy
             for gx in range(fw):
                 if sheet[tx + gx, sy]:
-                    r[gx] = 1
-            rows.append(bytes(r))            # immutable -> safe to share across renders
-    _MASKS[key] = rows
-    return rows
+                    b[p] = 1
+                p += 1
+        flat = bytes(b)                      # immutable -> safe to share across renders
+    _MASKS[key] = flat
+    return flat
+
+
+def _glyph_rows(font, cp, fw, fh):
+    """Back-compat: fh row-`bytes` (used by the desktop sim's Canvas.text + the dio backend). Built
+    from the flat cache; the device render path (_render_into) reads the flat bytes directly."""
+    flat = _glyph_flat(font, cp, fw, fh)
+    return [flat[gy * fw:(gy + 1) * fw] for gy in range(fh)]
 
 
 def _render_into(pg, font, text, fg, bg, buf):
@@ -83,10 +93,11 @@ def _render_into(pg, font, text, fg, bg, buf):
     data = buf if (buf is not None and len(buf) >= size) else bytearray(size)
     for i in range(n):
         ox = i * fw
-        rows = _glyph_rows(font, ord(text[i]), fw, fh)
+        mv = memoryview(_glyph_flat(font, ord(text[i]), fw, fh))   # flat cache; view = no per-row alloc
         for gy in range(fh):
             d = gy * w + ox
-            data[d:d + fw] = rows[gy]        # whole-row memcpy: no per-pixel Python, no alloc
+            base = gy * fw
+            data[d:d + fw] = mv[base:base + fw]   # whole-row memcpy: no per-pixel Python, no alloc
     if bg is None:
         palette = array.array("H", [pg.rgb565(0, 0, 0), fg])
         transparent = 0

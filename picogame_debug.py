@@ -67,6 +67,8 @@ class Watch:
     swapped only when the rounded numbers change. hide()/show() toggle the sprite;
     remove() detaches it from the scene for good. step() is ~free while hidden."""
 
+    CELLS = 18                             # fixed width -> constant bitmap size (no shrink/stale, reused buffer)
+
     def __init__(self, scene, clock=None, every=30, x=2, y=2):
         import picogame as pg
         import terminalio
@@ -78,7 +80,10 @@ class Watch:
         self._n = 0
         self._t0 = _ms()
         self._text = None
-        bmp, _, _ = picogame_font.render_text(pg, self._font, "FPS --", self._fg, self._bg)
+        self._buf = None                   # reused glyph buffer -> NO per-update ~1 KB bitmap alloc
+        # allocate the buffer + first bitmap ONCE, at a fixed CELLS width (space-padded thereafter)
+        bmp, _, _, self._buf, _ = picogame_font._render_into(
+            pg, self._font, " " * self.CELLS, self._fg, self._bg, None)
         self.sprite = pg.Sprite(bmp, x, y)
         self.sprite.anchor = (0.0, 0.0)
         self.scene = scene
@@ -101,9 +106,11 @@ class Watch:
             text = "FPS %d FREE %dk" % (fps, gc.mem_free() // 1024)
         else:
             text = "FPS %d" % fps
-        if text != self._text:             # high-churn text: one live bitmap, old one GC'd
+        text = text[:self.CELLS].ljust(self.CELLS)   # fixed width: constant size, no stale pixels
+        if text != self._text:             # re-render into the REUSED buffer (only the small Bitmap wrapper allocs)
             self._text = text
-            bmp, _, _ = self._fontmod.render_text(self._pg, self._font, text, self._fg, self._bg)
+            bmp, _, _, self._buf, _ = self._fontmod._render_into(
+                self._pg, self._font, text, self._fg, self._bg, self._buf)
             self.sprite.bitmap = bmp
 
     def hide(self):
