@@ -140,7 +140,8 @@ class Buttons:
     UP, DOWN, LEFT, RIGHT, A, B, X, Y = UP, DOWN, LEFT, RIGHT, A, B, X, Y
     L1, L2, R1, R2, START, SELECT, ALL = L1, L2, R1, R2, START, SELECT, ALL
 
-    def __init__(self, profile=None, pull=None, prefer_keypad=True, debounce_s=0.02, matrix=None):
+    def __init__(self, profile=None, pull=None, prefer_keypad=True, debounce_s=0.02, matrix=None,
+                 usb=None):
         # `matrix` = drive a scanned ROW x COLUMN key matrix (e.g. a QWERTY) instead of one-pin-per-
         # button; map only the keys you want onto game buttons, the rest are ignored. Pass:
         #   matrix={"rows": [pin/name, ...], "cols": [pin/name, ...],
@@ -150,10 +151,18 @@ class Buttons:
         # is unchanged - a mapped key IS that game button. (Discover key_numbers with a keypad.KeyMatrix
         # scan sketch first; layouts vary.) See NAMES for the button vocabulary. Can also be set
         # entirely from settings.toml (PICOGAME_MATRIX_ROWS/COLS/MAP) - see _matrix_from_settings.
+        # Extra button SOURCES (each an object with .read() -> logical bitmask; Buttons ORs them into
+        # self.state every poll). A USB HID gamepad is auto-attached here on USB-host boards; see
+        # _attach_usb / picogame_usbpad. self._hw holds the keypad backend's own level accumulator so
+        # source bits never corrupt it.
+        self._sources = []
+        self._hw = 0
+        self._flush = False
         if matrix is None:
             matrix = _matrix_from_settings()
         if matrix is not None:
             self._init_matrix(matrix, debounce_s)
+            self._attach_usb(usb)
             return
         # Backend is chosen automatically: the CircuitPython `keypad` module (hardware debounce +
         # background scan + an event queue, so quick taps are never missed) where available, else
@@ -200,6 +209,36 @@ class Buttons:
                 io.switch_to_input(pull=pull)
                 self._ios.append(io)
             self._pairs = list(zip(self._ios, self._bits))  # pre-zipped (no per-frame zip alloc)
+        self._attach_usb(usb)
+
+    def _attach_usb(self, usb):
+        """Try to attach a USB HID gamepad as an extra source, unless disabled. `usb=False` off;
+        `usb=None` (default) = auto (attach only on a CircuitPython USB-host build, unless settings.toml
+        sets PICOGAME_USB=0); `usb=True` = force (also on the CPython sim, for deliberate testing - still
+        no-ops if no pad/driver). Silent on every failure (no usb.core, no pad plugged in, driver not
+        copied) so games run unchanged on any board."""
+        if usb is False:
+            return
+        if usb is None:
+            import sys
+            # auto mode: never grab real host USB in the CPython sim just because PyUSB happens to be
+            # installed - only a genuine CircuitPython USB-host build should auto-attach.
+            if getattr(sys.implementation, "name", "") != "circuitpython":
+                return
+            if os.getenv("PICOGAME_USB", "1") == "0":
+                return
+        try:
+            import usb.core            # only on a USB-host build; gate BEFORE importing picogame_usbpad
+        except ImportError:            # (so a non-USB board never caches the unused pad module - RP2040 RAM)
+            return
+        try:
+            import picogame_usbpad
+            pad = picogame_usbpad.UsbPad()
+            self._sources.append(pad)
+            self._mapped |= pad.mapped       # has() now reports the pad's actually-mapped buttons
+        except Exception as e:
+            import picogame_debug
+            picogame_debug.note("input: USB gamepad not attached ->", repr(e))
 
     def _init_matrix(self, m, debounce_s):
         """Row x column matrix backend (keypad.KeyMatrix). Same Event queue as keypad.Keys, so poll()
@@ -245,10 +284,10 @@ class Buttons:
             while q.get_into(ev):
                 bit = self._bits[ev.key_number]
                 if ev.pressed:
-                    self.state |= bit
+                    self._hw |= bit
                     self._pressed |= bit
                 else:
-                    self.state &= ~bit
+                    self._hw &= ~bit
                     self._released |= bit
         else:                                            # --- digitalio polling backend (raw) ---
             raw = 0
@@ -256,7 +295,16 @@ class Buttons:
             for io, bit in self._pairs:
                 if ((not io.value) if active_low else io.value):
                     raw |= bit
-            self.state = raw
+            self._hw = raw
+        # merge extra sources (USB gamepad, ...) - each holds its own mask, Buttons is the OR
+        s = self._hw
+        for src in self._sources:
+            s |= src.read()
+        self.state = s
+        if self._flush:                      # first poll after clear(): consume this frame's edges so a
+            self.prev = self.state           # button HELD across the transition doesn't read as a fresh
+            self._pressed = self._released = 0   # press (matters for USB sources, which keep holding it)
+            self._flush = False
         # track held-frame counts (for repeat())
         h = self._hold
         s = self.state
@@ -273,13 +321,26 @@ class Buttons:
         return bool(self.state & mask)
 
     def just_pressed(self, mask=ALL):
-        # keypad backend reports edges from the event queue (catches sub-frame taps); the polling
-        # backend diffs held state across frames.
-        edge = self._pressed if self._keys is not None else (self.state & ~self.prev)
+        # With extra sources (USB pad) attached: edges come from the COMBINED level diff only. A source
+        # and the keypad can hold the SAME logical bit, so mixing in the keypad's own queue edge would
+        # falsely fire a press/release the other source doesn't agree with (e.g. a release while the pad
+        # still holds it). No sources: use the keypad queue (catches sub-frame taps the diff would miss),
+        # else the polling level diff.
+        if self._sources:
+            edge = self.state & ~self.prev
+        elif self._keys is not None:
+            edge = self._pressed
+        else:
+            edge = self.state & ~self.prev
         return bool(edge & mask)
 
     def just_released(self, mask=ALL):
-        edge = self._released if self._keys is not None else (~self.state & self.prev)
+        if self._sources:
+            edge = ~self.state & self.prev
+        elif self._keys is not None:
+            edge = self._released
+        else:
+            edge = ~self.state & self.prev
         return bool(edge & mask)
 
     def has(self, mask=ALL):
@@ -302,7 +363,11 @@ class Buttons:
         """Reset state + flush pending input (call on scene/menu transitions)."""
         if self._keys is not None:
             self._keys.events.clear()
-        self.state = self.prev = self._pressed = self._released = 0
+        # _hw is the keypad/polling level accumulator (separate from state since sources were added) -
+        # zero it too, or a held key's level would OR straight back into state on the next poll.
+        self.state = self.prev = self._pressed = self._released = self._hw = 0
+        self._flush = True                   # suppress edges on the next poll (a still-held source
+        #                                      button must not re-fire as a fresh press after clear)
         for i in range(_NBITS):
             self._hold[i] = 0
 
