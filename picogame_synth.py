@@ -156,7 +156,9 @@ class Synth:
             self.synth = synthio.Synthesizer(sample_rate=sample_rate, channel_count=1)
             self.mixer.voice[1].play(self.synth)
             self.available = True
-        except Exception:            # MemoryError on a tight heap / pin in use -> run silent
+        except Exception as e:       # MemoryError on a tight heap / pin in use -> run silent
+            import picogame_debug     # settings.toml PICOGAME_DEBUG=1 -> print the real reason (else silent)
+            picogame_debug.note("synth: init failed ->", repr(e))
             out = getattr(self, "audio", None)
             if out is not None and not isinstance(out, _Null):
                 try:

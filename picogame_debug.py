@@ -21,8 +21,25 @@
 
 import gc
 import time
+import os
 
-enabled = False    # ram() no-ops until a test session sets picogame_debug.enabled = True
+# General debug switch for the whole engine. settings.toml `PICOGAME_DEBUG = 1` seeds it (a test can
+# also set `picogame_debug.enabled = True` in code). Gates `ram()` + `note()` across every subsystem
+# (audio, input, ...). A falsy value ("", "0", "false") = off; default off.
+enabled = os.getenv("PICOGAME_DEBUG") not in (None, "", "0", "false", "False")
+
+
+def note(*args):
+    """Crash-proof serial diagnostic for an UNEXPECTED failure at a subsystem boundary (a real problem:
+    a mis-wired/missing I2S DAC driver, a claimed pin). Prints '[picogame] ...' ONLY when `enabled`, and
+    NEVER raises (an OOM inside the print can't escape). Do NOT call it for an EXPECTED fallback (the sim
+    has no synthio; a PWM board has no I2S DAC) - those must stay quiet."""
+    if not enabled:
+        return
+    try:
+        print("[picogame]", *args)
+    except Exception:
+        pass
 
 
 def ram(tag):
@@ -106,7 +123,9 @@ class Watch:
             text = "FPS %d FREE %dk" % (fps, gc.mem_free() // 1024)
         else:
             text = "FPS %d" % fps
-        text = text[:self.CELLS].ljust(self.CELLS)   # fixed width: constant size, no stale pixels
+        text = text[:self.CELLS]
+        text = text + " " * (self.CELLS - len(text))   # fixed width (constant size, no stale pixels);
+        #                                                manual pad - str.ljust is absent on some CP builds
         if text != self._text:             # re-render into the REUSED buffer (only the small Bitmap wrapper allocs)
             self._text = text
             bmp, _, _, self._buf, _ = self._fontmod._render_into(
