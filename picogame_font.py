@@ -15,6 +15,19 @@ import array
 _EMPTY = []   # shared sprite list for a hidden Label.draw() (just fills bg, composites nothing)
 
 
+def _target(display):
+    """Normalize a display for pg.render: a framebuffer board's board.DISPLAY (Fruit Jam DVI) -> its
+    pg.Framebuffer via picogame_game.target; a BusDisplay / pg.Display / pg.Framebuffer passes through
+    (PicoPad unchanged). See picogame_game.target. Only a missing picogame_game falls back to raw."""
+    if getattr(display, "framebuffer", None) is None:
+        return display
+    try:
+        import picogame_game
+    except ImportError:
+        return display
+    return picogame_game.target(display)
+
+
 def render_text(pg, font, text, fg, bg=None):
     """Render `text` (fixed-grid tiled fontio font) -> the tuple `(bmp, w, h)` (a PAL8
     picogame.Bitmap + its pixel size). Use as `bmp, w, h = render_text(...)`. fg/bg are wire
@@ -158,7 +171,8 @@ class Label:
         has_new = self.sprite is not None
         old = self._drawn
         if not has_new and old is None:
-            return                         # nothing shown and nothing to erase
+            return                         # nothing shown and nothing to erase (skip work incl. normalize)
+        display = _target(display)          # accept board.DISPLAY on a framebuffer board (Fruit Jam)
         if has_new:
             x0, y0 = self.x, self.y
             x1, y1 = self.x + self.w, self.y + self.h

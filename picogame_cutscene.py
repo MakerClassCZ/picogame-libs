@@ -46,6 +46,21 @@ CAP_FG = (235, 238, 248)                               # caption text / bar colo
 CAP_BG = (6, 6, 10)
 
 
+def _dst(display):
+    """The immediate-render target: the raw board.DISPLAY (so we bypass the DMA backend's double
+    buffer, see the landmine note above), or the passed `display` where there's no board.DISPLAY.
+    On a framebuffer board (Fruit Jam) board.DISPLAY is a FramebufferDisplay pg.render can't take -
+    unwrap it to a pg.Framebuffer via the memoized resolver."""
+    d = _LCD if _LCD is not None else display
+    if getattr(d, "framebuffer", None) is None:
+        return d
+    try:
+        import picogame_game
+    except ImportError:
+        return d
+    return picogame_game.target(d)
+
+
 def palette(pg, rgb):
     """Build the device palette (array('H') of wire RGB565, via pg.rgb565 - never hand-pack 565)
     from a bake_cutscene.py palette module (its RGB tuple), a list of (r, g, b) triplets, or a list
@@ -66,7 +81,7 @@ def show(pg, display, buffer, path, pal=None, w=320, h=240, scale=None, band=24,
     scale=None derives it from the display: width // w, and REJECTS a non-integer fit (a 150-wide
     image on a 320 screen has no whole-pixel scale - re-bake at a divisor size). Returns the
     scale used. `bg` = the palette index (PAL8) / byte (RGB565) clearing a short final band."""
-    dst = _LCD if _LCD is not None else display        # immediate render -> the raw BusDisplay
+    dst = _dst(display)                                # immediate render target (raw LCD / framebuffer)
     if scale is None:
         scale = dst.width // w
         if scale < 1 or dst.width % w:
@@ -122,7 +137,7 @@ def play(pg, display, buffer, btn, path, pal=None, w=320, h=240, scale=None, ban
     choices (e.g. caption "A: start   B: options"); returns None if it auto-advanced (auto_hold)."""
     if btn is None and not auto_hold:
         raise ValueError("play needs btn (wait for A/B) or auto_hold > 0")
-    dst = _LCD if _LCD is not None else display
+    dst = _dst(display)
     show(pg, display, buffer, path, pal, w, h, scale, band, bg)
     lines = caption_lines if caption_lines else ([caption] if caption else None)
     if lines:

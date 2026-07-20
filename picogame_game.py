@@ -104,6 +104,32 @@ def setup(display=None, strip_h=None, background=0, fast=True, top=0, bottom=0, 
     return scene, buf_a, buf_b
 
 
+_RESOLVED = {}   # id(display) -> (display, backend, is_fb): setup() and every HUD that normalizes
+                 # board.DISPLAY share ONE wrapper (no per-frame Framebuffer realloc). The original
+                 # display is kept as a STRONG ref in the tuple so its id can't be reused by a later
+                 # object (stale-alias guard), and the hit is re-verified with `is` before reuse.
+
+
+_TARGET = {}   # id(display) -> (display, backend): alloc-free hot-path cache for target()
+
+
+def target(display):
+    """Immediate-render target for pg.render: a framebuffer board's FramebufferDisplay -> its
+    pg.Framebuffer (memoized via resolve_display); a BusDisplay / pg.Display / pg.Framebuffer (none of
+    which carry a `.framebuffer` attr) passes straight through. Lets HUD / Label / overlay / cutscene
+    helpers accept a bare `board.DISPLAY` on every platform. Resolver errors (bad rotation / colour
+    depth / old firmware) propagate - the caller sees the real reason, not a later 'expected a BusDisplay'."""
+    if getattr(display, "framebuffer", None) is None:
+        return display
+    key = id(display)                        # alloc-free on hits: resolve_display's (backend, is_fb)
+    hit = _TARGET.get(key)                    # tuple would allocate per call on this per-frame path
+    if hit is not None and hit[0] is display:
+        return hit[1]
+    backend = resolve_display(display)[0]
+    _TARGET[key] = (display, backend)
+    return backend
+
+
 def resolve_display(display=None):
     """Find and normalize the render target. Returns (backend, is_framebuffer).
 
@@ -128,7 +154,12 @@ def resolve_display(display=None):
     if display is None:
         raise RuntimeError("no display found; on a DVI board set "
                            "CIRCUITPY_PICODVI_ENABLE=\"always\" in settings.toml")
+    key = id(display)
+    hit = _RESOLVED.get(key)
+    if hit is not None and hit[0] is display:      # verify identity: guards a reused id() (stale alias)
+        return hit[1], hit[2]
     if hasattr(pg, "Framebuffer") and isinstance(display, pg.Framebuffer):
+        _RESOLVED[key] = (display, display, True)
         return display, True
     raw = getattr(display, "framebuffer", None)
     if raw is not None:
@@ -156,7 +187,9 @@ def resolve_display(display=None):
         except TypeError:
             raise RuntimeError("this firmware's picogame.Framebuffer lacks native_rgb565 - "
                                "flash a newer picogame build")
+        _RESOLVED[key] = (display, fb, True)
         return fb, True
+    _RESOLVED[key] = (display, display, False)
     return display, False
 
 
@@ -174,5 +207,5 @@ def overlay(scene, display, items, buffer, x0, y0, x1, y1, *, background=0):
 
     Args mirror `pg.render`: `items` may be any layer kinds (a StripDraw with `view.text`
     = a 0-RAM text screen), `buffer` is a strip buffer (reuse the one from setup())."""
-    pg.render(display, items, buffer, x0, y0, x1, y1, background=background)
+    pg.render(target(display), items, buffer, x0, y0, x1, y1, background=background)
     scene.invalidate()
