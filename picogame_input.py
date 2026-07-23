@@ -239,6 +239,18 @@ class Buttons:
         except Exception as e:
             import picogame_debug
             picogame_debug.note("input: USB gamepad not attached ->", repr(e))
+        if os.getenv("PICOGAME_KBD", "1") == "0":
+            return
+        try:
+            # a USB HID keyboard (wired, or wireless via a 2.4 GHz dongle) is one more
+            # OR'd source: arrows/WASD = D-pad, Z/Space = A, ... (see picogame_usbkbd)
+            import picogame_usbkbd
+            kbd = picogame_usbkbd.UsbKbd()
+            self._sources.append(kbd)
+            self._mapped |= kbd.mapped
+        except Exception as e:
+            import picogame_debug
+            picogame_debug.note("input: USB keyboard not attached ->", repr(e))
 
     def _init_matrix(self, m, debounce_s):
         """Row x column matrix backend (keypad.KeyMatrix). Same Event queue as keypad.Keys, so poll()
