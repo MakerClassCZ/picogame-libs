@@ -4,9 +4,9 @@
 #
 # Works with wired keyboards AND wireless ones that use a 2.4 GHz USB dongle (the dongle presents a
 # standard HID keyboard; Bluetooth keyboards do NOT work - CircuitPython has no BT host stack).
-# The keyboard is found by its BOOT-KEYBOARD interface descriptor (keyboards have no fixed VID/PID),
-# preferably via adafruit_usb_host_descriptors; without that driver a plain endpoint-0x81 fallback
-# covers most single-interface keyboards. Some combo dongles advertise a boot-keyboard interface
+# The keyboard is found by its BOOT-KEYBOARD interface descriptor (keyboards have no fixed VID/PID):
+# the config descriptor is walked for class-3/protocol-1 interfaces (adafruit_usb_host_descriptors,
+# when present, only orders the preference). Some combo dongles advertise a boot-keyboard interface
 # that never delivers a report while the real keystrokes flow on a SIBLING keyboard interface
 # (e.g. a Rapoo 2.4G receiver: iface 1 silent, iface 2 live). For those, point the driver at the
 # right channel from settings.toml - deterministic, no auto-detection:
@@ -24,7 +24,7 @@
 # button in the override, the defaults may alias several keycodes to one logical button.)
 import os
 
-VERSION = "2026-07-23f"   # deploy sanity: print(picogame_usbkbd.VERSION) in the REPL
+VERSION = "2026-07-23g"   # deploy sanity: print(picogame_usbkbd.VERSION) in the REPL
 
 from picogame_input import (UP, DOWN, LEFT, RIGHT, A, B, X, Y,
                             L1, R1, START, SELECT, NAMES)
@@ -65,9 +65,12 @@ def _keys_from_settings():
     if not override:
         return _DEFAULT_KEYS
     overridden = 0
-    for _c, log in override:
+    ovcodes = []
+    for c, log in override:
         overridden |= log
-    merged = [e for e in _DEFAULT_KEYS if not (e[1] & overridden)]
+        ovcodes.append(c)
+    merged = [e for e in _DEFAULT_KEYS
+              if not (e[1] & overridden) and e[0] not in ovcodes]
     merged.extend(override)
     return tuple(merged)
 
@@ -110,18 +113,17 @@ def _kbd_candidates(dev):
             cands.insert(0, pref)
     except Exception:
         pass
-    if not cands:
-        cands.append((0, 0x81))                  # last-resort single-interface guess
     return cands
 
 
 def _find_keyboard():
-    """First device on the bus with any keyboard-protocol interface -> (device, candidates)."""
+    """First device on the bus with any keyboard-protocol interface -> (device, candidates).
+    A plain single-interface keyboard legitimately yields [(0, 0x81)] from the walk."""
     import usb.core
     for dev in usb.core.find(find_all=True):
         try:
             cands = _kbd_candidates(dev)
-            if cands and cands != [(0, 0x81)]:
+            if cands:
                 return dev, cands
         except Exception:
             continue
@@ -136,7 +138,9 @@ def _pick(cands):
     if ov and ":" in ov:
         try:
             i, e = ov.split(":", 1)
-            return int(i, 0), int(e, 0)
+            i, e = int(i, 0), int(e, 0)
+            if 0 <= i <= 255 and (e & 0x80) and e <= 0xFF:   # interface + IN endpoint
+                return i, e
         except ValueError:
             pass
     return cands[0]
@@ -176,18 +180,20 @@ class UsbKbd:
     releases everything on a hard USB error, re-attaching after ~1 s of failures."""
 
     def __init__(self, dev=None, iface=None, ep=None, keys=None, timeout_ms=None):
-        if dev is None:
+        auto = dev is None
+        if auto:
             dev, cands = _find_keyboard()
             if dev is not None:
+                iface, ep = _pick(cands)
                 for i, _e in cands:              # detach every candidate iface (the
                     _claim_detach(dev, i)        # supervisor may hold any of them)
+                _claim_detach(dev, iface)        # override may point outside cands
                 _claim_detach(dev, 0)            # + iface 0 (a combo dongle's mouse) - a
                 dev.set_configuration()          # held iface makes set_configuration fail
-                iface, ep = _pick(cands)
                 _boot_protocol(dev, iface)
         if dev is None:
             raise ValueError("picogame_usbkbd: no boot keyboard found")
-        elif ep is None:                     # explicit dev without ep: claim classically
+        if not auto:                         # explicit device: claim it like UsbPad does
             _claim(dev, iface if iface is not None else 0)
         self._dev = dev
         self._iface = iface if iface is not None else 0
@@ -234,11 +240,13 @@ class UsbKbd:
 
     def _parse(self, n):
         r = self._buf
+        if n > 2 and r[2] == 1:                 # error rollover (>6 keys / ghosting):
+            return self._mask                   # state unknown -> HOLD, don't release
         m = 0
         # boot report: bytes 2..7 hold up to 6 concurrently pressed keycodes
         for i in range(2, min(n, 8)):
             c = r[i]
-            if c <= 1:                          # 0 = none, 1 = error rollover
+            if c <= 3:                          # 0 = none, 1-3 = HID error codes
                 continue
             for code, log in self._keys:
                 if code == c:
@@ -256,11 +264,12 @@ class UsbKbd:
             try:
                 dev, cands = _find_keyboard()
                 if dev is not None:
+                    iface, ep = _pick(cands)
                     for i, _e in cands:
                         _claim_detach(dev, i)
+                    _claim_detach(dev, iface)
                     _claim_detach(dev, 0)
                     dev.set_configuration()
-                    iface, ep = _pick(cands)
                     _boot_protocol(dev, iface)
                     self._dev = dev
                     self._iface = iface

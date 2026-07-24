@@ -225,7 +225,7 @@ class Buttons:
             # installed - only a genuine CircuitPython USB-host build should auto-attach.
             if getattr(sys.implementation, "name", "") != "circuitpython":
                 return
-            if os.getenv("PICOGAME_USB", "1") == "0":
+            if str(os.getenv("PICOGAME_USB", "1")) == "0":
                 return
         try:
             import usb.core            # only on a USB-host build; gate BEFORE importing picogame_usbpad
@@ -239,7 +239,7 @@ class Buttons:
         except Exception as e:
             import picogame_debug
             picogame_debug.note("input: USB gamepad not attached ->", repr(e))
-        if os.getenv("PICOGAME_KBD", "1") == "0":
+        if str(os.getenv("PICOGAME_KBD", "1")) == "0":
             return
         try:
             # a USB HID keyboard (wired, or wireless via a 2.4 GHz dongle) is one more
@@ -317,6 +317,14 @@ class Buttons:
             self.prev = self.state           # button HELD across the transition doesn't read as a fresh
             self._pressed = self._released = 0   # press (matters for USB sources, which keep holding it)
             self._flush = False
+            h = self._hold                   # pre-seed held bits so the loop below lands on 2, not 1 -
+            i = 0                            # repeat()'s first-press edge must not fire either (a menu
+            b = 1                            # opened by a held button would move its cursor one step)
+            while b < (1 << _NBITS):
+                if s & b:
+                    h[i] = 1
+                i += 1
+                b <<= 1
         # track held-frame counts (for repeat())
         h = self._hold
         s = self.state

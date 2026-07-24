@@ -16,7 +16,7 @@
 # passed to UsbPad(buttons=..., axes=...) in code.
 import os
 
-VERSION = "2026-07-23i"   # deploy sanity: print(picogame_usbpad.VERSION) in the REPL
+VERSION = "2026-07-23j"   # deploy sanity: print(picogame_usbpad.VERSION) in the REPL
 
 from picogame_input import (UP, DOWN, LEFT, RIGHT, A, B, X, Y,
                             L1, L2, R1, R2, START, SELECT, NAMES)
@@ -142,6 +142,8 @@ class UsbPad:
         self._no_raise = True                           # probe raise_on_timeout= on first read()
         self._errs = 0                                  # consecutive hard USB errors (re-attach gate)
         self._mask = 0
+        self._quiet = 0                                 # consecutive quiet polls (stale-mask healer)
+        self._resync_ok = True                          # healer enabled until GET_REPORT fails once
         m = 0                                           # per-instance mapped mask (covers custom remaps
         for _bi, _mask, log in self._buttons:           # that add L2/R2, unlike the module MAPPED const)
             m |= log
@@ -169,7 +171,7 @@ class UsbPad:
             except Exception:
                 return self._hard_error()
             if n == 0:
-                return self._mask                       # no new report -> hold last state
+                return self._held()                     # no new report -> hold (self-healing) state
         else:
             try:
                 n = self._dev.read(self._ep, self._buf, timeout=self._to)
