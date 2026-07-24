@@ -228,7 +228,7 @@ class ExtraFont:
 
     get_glyph() asks the builtin font first, then each BDF in the order given,
     so extra files only ever ADD glyphs. The bundled subsets (fonts/*.bdf,
-    regenerate with tools/make_bdf_subset.py) are cut from CircuitPython's own
+    regenerate with make_bdf_subset.py - picogame repo, tools/) are cut from CircuitPython's own
     ter-u12n.bdf - the very Terminus build terminalio.FONT comes from - so
     they blend seamlessly with builtin text.
 
