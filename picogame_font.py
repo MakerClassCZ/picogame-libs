@@ -122,6 +122,25 @@ def _render_into(pg, font, text, fg, bg, buf):
     return bmp, w, h, data, palette
 
 
+def compose_into(font, text, buf, w, chars):
+    """Compose `text` into an EXISTING `buf` in place (stride `w`, height fh), truncated / blank-padded
+    to `chars` cells - every cell is (re)written so no clear is needed. Reuses the per-glyph flat cache
+    with whole-row memcpy; allocates no Bitmap and no palette, so a widget that pre-built its Bitmap over
+    `buf` (fixed width) can repaint by just calling this + sprite.touch() - zero per-update churn. buf
+    must be >= w*fh; `w` should be fw*chars."""
+    fw, fh = font.get_bounding_box()[:2]
+    n = len(text)
+    for i in range(chars):
+        cp = ord(text[i]) if i < n else 32          # pad the tail with blanks
+        mv = memoryview(_glyph_flat(font, cp, fw, fh))
+        d = i * fw
+        base = 0
+        for _gy in range(fh):
+            buf[d:d + fw] = mv[base:base + fw]      # whole-row memcpy (no per-pixel Python)
+            d += w
+            base += fw
+
+
 class Label:
     """A positioned text label drawn immediately to the display (good for HUD).
     Re-renders only when the text changes; draw() repaints its rectangle AND clears the
@@ -152,8 +171,8 @@ class Label:
             self.sprite.move(x, y)
 
     def set(self, text):
-        text = str(text)
-        if text == self.text:
+        text = "" if text is None else str(text)   # None -> hidden (match ui.SceneLabel/_HudLabel _txt),
+        if text == self.text:                       # not the literal "None"
             return False
         self.text = text
         if text == "":                     # empty = hidden: don't leave stale glyph pixels behind

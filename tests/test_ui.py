@@ -53,3 +53,46 @@ def test_menu_step_paging_window():
     sel, top, act = UI._menu_step(FakeBtn(down=True), 2, 0, 3, 10, True)
     assert sel == 3
     assert top == 3                                  # paged: window jumps a whole page
+
+
+def test_menu_step_line_scroll():
+    # paged=False (used by OptionsMenu): the window follows the cursor one line at a time
+    sel, top, _ = UI._menu_step(FakeBtn(down=True), 2, 0, 3, 10, False)
+    assert sel == 3 and top == 1                      # sel left the window -> top slides by one
+
+
+# --- the shared menu helpers (dedup of Menu / SceneMenu / OptionsMenu) ---
+def test_marked():
+    assert UI._marked("Play", True) == "> Play"
+    assert UI._marked("Play", False) == "  Play"
+
+
+def test_panel_h():
+    assert UI._panel_h(3) == 10 + 3 * UI.LINE_H
+
+
+def test_menu_w():
+    assert UI._menu_w(["Hi"], 200) == 200                      # explicit width wins
+    assert UI._menu_w(["a", "longer"], None) == max(60, 11 * 6 + 16)   # heuristic on longest label
+    assert UI._menu_w([], None) == max(60, 11 * 4 + 16)        # empty -> the default-4 floor
+
+
+def test_menu_pick():
+    assert UI._menu_pick(3, "A") == 3                          # chosen index/key on A
+    assert UI._menu_pick("done", "B") == UI.CANCEL             # CANCEL on B
+    assert UI._menu_pick(3, None) is None                      # still navigating
+
+
+def test_menu_lines_window():
+    rt = lambda i: "r%d" % i
+    assert UI._menu_lines("T", rt, 0, 3, 10) == ["T", "r0", "r1", "r2"]   # title + window
+    assert UI._menu_lines(None, rt, 4, 3, 10) == ["r4", "r5", "r6"]       # no title, mid-list
+    assert UI._menu_lines(None, rt, 8, 3, 10) == ["r8", "r9"]             # clamps at the end
+
+
+def test_wrap():
+    assert UI.wrap("one two three", 7) == ["one two", "three"]            # word wrap
+    assert UI.wrap("a\nb c", 10) == ["a", "b c"]                          # breaks on newlines too
+    assert UI.wrap("one two three four", 7, maxlines=2) == ["one two", "three"]   # maxlines cap
+    assert UI.wrap(None, 5) == []                                         # None -> no lines
+    assert UI.wrap("verylongword", 4) == ["verylongword"]                # over-long word on its own line
