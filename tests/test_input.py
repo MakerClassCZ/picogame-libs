@@ -87,3 +87,38 @@ def test_profile_from_settings_parsing():
 def test_profile_from_settings_unset():
     os.environ.pop("PICOGAME_BUTTONS", None)
     assert I._profile_from_settings() is None
+
+
+# --- local multiplayer: Buttons(sources=[...]) = one player per device ---
+class FakeSource:
+    """A minimal input source (the .read()->mask / .mapped protocol UsbPad/UsbKbd implement)."""
+    def __init__(self, mapped=I.ALL):
+        self.mapped = mapped
+        self._m = 0
+
+    def read(self):
+        return self._m
+
+
+def test_sources_two_players_isolated():
+    s1, s2 = FakeSource(), FakeSource()
+    p1 = I.Buttons(sources=[s1])
+    p2 = I.Buttons(sources=[s2])
+    s1._m = I.A
+    p1.poll(); p2.poll()
+    assert p1.is_pressed(I.A) and not p2.is_pressed(I.A)   # each player reads only its own device
+    assert p1.just_pressed(I.A) and not p2.just_pressed(I.A)
+    s1._m = I.A; s2._m = I.LEFT                            # p1 keeps holding A, p2 presses LEFT
+    p1.poll(); p2.poll()
+    assert not p1.just_pressed(I.A)                        # held, not a fresh press
+    assert p2.just_pressed(I.LEFT)
+    assert p1.is_pressed(I.A) and p2.is_pressed(I.LEFT)
+
+
+def test_sources_mapped_union_and_or():
+    a, b = FakeSource(mapped=I.A | I.B), FakeSource(mapped=I.LEFT)
+    p = I.Buttons(sources=[a, b])
+    assert p.has(I.A) and p.has(I.B) and p.has(I.LEFT) and not p.has(I.START)   # mapped = OR
+    a._m = I.A; b._m = I.LEFT
+    p.poll()
+    assert p.is_pressed(I.A) and p.is_pressed(I.LEFT)      # a player CAN still combine >1 device
