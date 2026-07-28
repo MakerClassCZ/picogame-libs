@@ -9,6 +9,23 @@
 #   ...each frame: rc.cast(px, py, angle, W, H) ; scene.refresh()
 # MAP = list of equal-length strings, '0' = empty, '1'..'9' = wall types.
 #
+# BILLBOARD SPRITES (enemies/pickups), depth-tested against the walls: cast()
+# leaves a per-column wall z-buffer (rc.zbuf); project each sprite with
+# project_sprite(worldx, worldy) and drive a pooled pg.Sprite from the result -
+#   rc.cast(px, py, ang, W, H)
+#   for e in sorted(enemies, key=lambda e: -e.dist2(px, py)):   # far-to-near
+#       p = rc.project_sprite(e.wx, e.wy)
+#       if p:
+#           sx, size, e.d = p
+#           e.spr.x, e.spr.y = sx, HORIZON_Y        # anchor (0.5, 0.5)
+#           e.spr.scale = size / BMP_H              # bitmap is BMP_H px tall
+#           e.spr.visible = True
+#       else:
+#           e.spr.visible = False                   # off-screen or behind a wall
+#   scene.refresh()
+# The sprites must be add()ed to the Scene AFTER the StripDraw so they layer on
+# top of the walls.
+#
 # PERF (RP2040): the whole thing is interpreted Python, so the two hot loops -
 # the per-column DDA and the per-strip wall paint - dominate. Three levers keep
 # it playable: `stride` casts one ray per N screen columns (2 = half the rays
@@ -39,7 +56,10 @@ class Raycaster:
         self.fov = fov
         self.stride = stride if stride > 0 else 1
         self.sw = self.sh = 0
-        self.top = self.bot = self.col = None
+        self.top = self.bot = self.col = self.zbuf = None
+        # camera pose of the last cast(), cached for project_sprite()
+        self._px = self._py = 0.0
+        self._dirx = self._diry = self._planex = self._planey = 0.0
 
     def solid(self, x, y):
         if 0 <= x < self.mw and 0 <= y < self.mh:
@@ -55,6 +75,7 @@ class Raycaster:
         top = [0] * ncols
         bot = [0] * ncols
         col = [0] * ncols
+        zb = [0.0] * ncols                   # per-column wall distance (sprite z-buffer)
         # hoist everything the inner loop touches into locals (module/attr lookups
         # are the #1 interpreter cost on-device)
         flat = self._flat
@@ -120,7 +141,44 @@ class Raycaster:
             top[c] = t
             bot[c] = b
             col[c] = far if side else near   # y-side walls slightly darker (depth cue)
-        self.top, self.bot, self.col = top, bot, col
+            zb[c] = dist
+        self.top, self.bot, self.col, self.zbuf = top, bot, col, zb
+        # cache the camera pose so project_sprite() can transform world points
+        self._px, self._py = px, py
+        self._dirx, self._diry = dirx, diry
+        self._planex, self._planey = planex, planey
+
+    def project_sprite(self, sx, sy, margin=0.2):
+        """Project world point (sx, sy) to a billboard for the LAST cast().
+        Returns (screen_x, size, depth), or None if the point is behind the
+        camera or hidden by a nearer wall at its centre column:
+          screen_x - centre x in screen px
+          size     - on-screen height in px, the SAME scale as the walls: set
+                     your sprite's scale to size / bitmap_height
+          depth    - perpendicular distance; sort your sprites far-to-near on it
+                     before positioning them, so nearer ones draw on top.
+        Walls occlude via the per-column z-buffer (`margin` world units of slack
+        so a sprite flush against a wall is not culled). The depth test is at the
+        sprite's centre column only - right for a single billboard sprite: it is
+        shown or hidden as a whole, not clipped per column. Call cast() first."""
+        zbuf = self.zbuf
+        if zbuf is None:
+            return None
+        relx = sx - self._px
+        rely = sy - self._py
+        det = self._planex * self._diry - self._dirx * self._planey
+        if det == 0:
+            return None
+        inv = 1.0 / det
+        ty = inv * (-self._planey * relx + self._planex * rely)   # depth along view dir
+        if ty <= 0.02:
+            return None                          # behind / on the camera plane
+        tx = inv * (self._diry * relx - self._dirx * rely)        # lateral (plane units)
+        screen_x = int((self.sw >> 1) * (1.0 + tx / ty))
+        ci = screen_x // self.stride
+        if 0 <= ci < len(zbuf) and ty > zbuf[ci] + margin:
+            return None                          # hidden behind a nearer wall
+        return screen_x, int(self.sh / ty), ty
 
     def draw(self, view, vx, vy, vw, vh):
         """StripDraw callback: sky/floor background for this band, then the wall
