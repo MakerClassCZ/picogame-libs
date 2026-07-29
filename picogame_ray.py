@@ -34,6 +34,13 @@
 # wall face facing you collapses to a single rect), and both loops hoist every
 # attribute to a local. Bump `stride` to 3-4 on a big map or a slow board.
 import math
+from array import array
+
+# The per-column DDA is the native engine primitive `picogame.raycast` (C on device, a Python
+# implementation in the desktop sim's picogame - like Canvas.mode7). This lib is the DRIVER: it does
+# the once-per-frame trig, hands the caster 16.16 ray params, then owns the paint, temporal
+# invalidate, pose-cache and billboards. There is deliberately NO pure-Python DDA fallback here.
+import picogame as _pg
 
 
 class Raycaster:
@@ -50,6 +57,16 @@ class Raycaster:
             for x, ch in enumerate(row):
                 flat[base + x] = 0 if ch == "0" else int(ch)
         self._flat = flat
+        # colour table for the caster (C + fallback): _wc[t*2]=near, _wc[t*2+1]=side(far);
+        # unknown wall type -> type 1 (matches the old wget default).
+        maxt = max(wall_colors) if wall_colors else 1
+        n1, f1 = wall_colors.get(1, (0, 0))
+        wc = array("H", bytes(4 * (maxt + 1)))
+        for t in range(maxt + 1):
+            nc, fc = wall_colors.get(t, (n1, f1))
+            wc[t * 2] = nc
+            wc[t * 2 + 1] = fc
+        self._wc = wc
         self.wall = wall_colors
         self.sky = sky
         self.floor = floor
@@ -60,6 +77,20 @@ class Raycaster:
         # camera pose of the last cast(), cached for project_sprite()
         self._px = self._py = 0.0
         self._dirx = self._diry = self._planex = self._planey = 0.0
+        # temporal dirty-band rendering (opt-in via attach()): the StripDraw + previous frame
+        self._sd = None
+        self._ptop = self._pbot = self._pcol = None
+        self._cang = None                    # last cast() heading (pose-cache: skip re-cast if unchanged)
+
+    def attach(self, stripdraw):
+        """Enable TEMPORAL (dirty-band) rendering. Pass the buffer-less StripDraw that draws
+        this raycaster, created with ``always_dirty=False``. cast() then invalidates only the
+        column band whose (top, bottom, colour) changed since the previous frame, so the Scene
+        recomposites and pushes JUST those columns - unchanged columns keep last frame's pixels.
+        Huge win when standing still / moving slowly (a lot of a raycast frame is identical to the
+        last). Without attach() the layer full-repaints every frame (use ``always_dirty=True``)."""
+        self._sd = stripdraw
+        self._ptop = self._pbot = self._pcol = None    # force a full first repaint
 
     def solid(self, x, y):
         if 0 <= x < self.mw and 0 <= y < self.mh:
@@ -69,84 +100,62 @@ class Raycaster:
     def cast(self, px, py, ang, sw, sh):
         """DDA one ray per `stride` screen columns; cache wall top/bottom/colour.
         Arrays are COMPACT (length ceil(sw/stride)); draw() expands them back."""
+        # Pose-cache: if the camera hasn't moved since the last cast, the result is identical -
+        # skip the whole DDA and leave nothing to invalidate (standing still = ~free).
+        if (self.top is not None and px == self._px and py == self._py
+                and ang == self._cang and sw == self.sw and sh == self.sh):
+            return
         self.sw, self.sh = sw, sh
         stride = self.stride
         ncols = (sw + stride - 1) // stride
-        top = [0] * ncols
-        bot = [0] * ncols
-        col = [0] * ncols
-        zb = [0.0] * ncols                   # per-column wall distance (sprite z-buffer)
-        # hoist everything the inner loop touches into locals (module/attr lookups
-        # are the #1 interpreter cost on-device)
-        flat = self._flat
-        mw = self.mw
-        mh = self.mh
-        wall = self.wall
-        wall1 = wall[1]
-        wget = wall.get
+        # native caster (picogame.raycast: C on device, Python in the sim) - trig here, integer DDA
+        # into the buffers; NO Python fallback (the caster is a required engine primitive).
         dirx = math.cos(ang)
         diry = math.sin(ang)
-        fov = self.fov
-        planex = -diry * fov
-        planey = dirx * fov
-        half = sh >> 1
-        ipx = int(px)
-        ipy = int(py)
-        inv_sw = 2.0 / sw
-        for c in range(ncols):
-            camx = (c * stride) * inv_sw - 1.0
-            rdx = dirx + planex * camx
-            rdy = diry + planey * camx
-            mapx = ipx
-            mapy = ipy
-            ddx = abs(1.0 / rdx) if rdx else 1e30
-            ddy = abs(1.0 / rdy) if rdy else 1e30
-            if rdx < 0:
-                stepx = -1
-                sidex = (px - mapx) * ddx
-            else:
-                stepx = 1
-                sidex = (mapx + 1.0 - px) * ddx
-            if rdy < 0:
-                stepy = -1
-                sidey = (py - mapy) * ddy
-            else:
-                stepy = 1
-                sidey = (mapy + 1.0 - py) * ddy
-            side = 0
-            cell = 1
-            for _ in range(64):              # DDA step cap
-                if sidex < sidey:
-                    sidex += ddx
-                    mapx += stepx
-                    side = 0
-                else:
-                    sidey += ddy
-                    mapy += stepy
-                    side = 1
-                cell = flat[mapy * mw + mapx] if (0 <= mapx < mw and 0 <= mapy < mh) else 1
-                if cell:
-                    break
-            dist = (sidex - ddx) if side == 0 else (sidey - ddy)
-            if dist < 0.01:
-                dist = 0.01
-            lh = int(sh / dist)
-            t = half - (lh >> 1)
-            b = t + lh
-            if t < 0:
-                t = 0
-            if b > sh:
-                b = sh
-            near, far = wget(cell, wall1)
-            top[c] = t
-            bot[c] = b
-            col[c] = far if side else near   # y-side walls slightly darker (depth cue)
-            zb[c] = dist
+        planex = -diry * self.fov
+        planey = dirx * self.fov
+        top = array("H", bytes(2 * ncols))
+        bot = array("H", bytes(2 * ncols))
+        col = array("H", bytes(2 * ncols))
+        zb = array("i", bytes(4 * ncols))            # perpendicular distance, 16.16
+        k = 2.0 * stride / sw                          # camx step per column
+        _pg.raycast(self._flat, self.mw, self.mh,
+                    int(px * 65536), int(py * 65536),
+                    int((dirx - planex) * 65536), int((diry - planey) * 65536),
+                    int(planex * k * 65536), int(planey * k * 65536),
+                    sh, stride, ncols, self._wc, top, bot, col, zb)
         self.top, self.bot, self.col, self.zbuf = top, bot, col, zb
-        # cache the camera pose so project_sprite() can transform world points
         self._px, self._py = px, py
+        self._cang = ang
         self._dirx, self._diry = dirx, diry
         self._planex, self._planey = planex, planey
+        self._after_cast(top, bot, col, ncols, stride, sh)
+
+    def _after_cast(self, top, bot, col, ncols, stride, sh):
+        # TEMPORAL dirty band: attached to an always_dirty=False StripDraw, invalidate only the
+        # column range that changed vs the previous frame (unchanged columns aren't repainted/pushed).
+        sd = self._sd
+        if sd is None:
+            return
+        ptop = self._ptop
+        if ptop is None:
+            sd.invalidate()                          # first frame: repaint the whole layer
+        else:
+            pbot = self._pbot
+            pcol = self._pcol
+            lo = -1
+            hi = 0
+            for c in range(ncols):
+                if top[c] != ptop[c] or bot[c] != pbot[c] or col[c] != pcol[c]:
+                    if lo < 0:
+                        lo = c
+                    hi = c + 1
+            if lo >= 0:                              # invalidate only the changed column band
+                sd.invalidate(lo * stride, 0, (hi - lo) * stride, sh)
+            # lo < 0 -> nothing changed -> no invalidate -> layer not repainted this frame
+        self._ptop = top
+        self._pbot = bot
+        self._pcol = col
 
     def project_sprite(self, sx, sy, margin=0.2):
         """Project world point (sx, sy) to a billboard for the LAST cast().
@@ -176,8 +185,8 @@ class Raycaster:
         tx = inv * (self._diry * relx - self._dirx * rely)        # lateral (plane units)
         screen_x = int((self.sw >> 1) * (1.0 + tx / ty))
         ci = screen_x // self.stride
-        if 0 <= ci < len(zbuf) and ty > zbuf[ci] + margin:
-            return None                          # hidden behind a nearer wall
+        if 0 <= ci < len(zbuf) and int(ty * 65536) > zbuf[ci] + int(margin * 65536):
+            return None                          # hidden behind a nearer wall (zbuf is 16.16)
         return screen_x, int(self.sh / ty), ty
 
     def draw(self, view, vx, vy, vw, vh):
@@ -197,26 +206,35 @@ class Raycaster:
         else:
             fr(0, 0, vw, half - y0, self.sky)
             fr(0, half - y0, vw, y1 - half, self.floor)
-        # walls: run-length-merge adjacent identical columns, clip run to strip
+        # walls: run-length-merge adjacent identical columns, clipped to THIS region.
+        # The region may be a horizontal sub-rect (vx>0, vw<full) when temporal rendering
+        # invalidated only a column band - so map column screen-x to view-local (x - vx).
         top = self.top
         bot = self.bot
         col = self.col
         stride = self.stride
         ncols = len(top)
-        c = 0
-        while c < ncols:
+        rx1 = vx + vw
+        c = vx // stride                         # first column touching the region
+        c_end = (rx1 + stride - 1) // stride      # one past the last
+        if c_end > ncols:
+            c_end = ncols
+        while c < c_end:
             t = top[c]
             b = bot[c]
             cc = col[c]
             c2 = c + 1
-            while c2 < ncols and top[c2] == t and bot[c2] == b and col[c2] == cc:
+            while c2 < c_end and top[c2] == t and bot[c2] == b and col[c2] == cc:
                 c2 += 1
             st = t if t > y0 else y0
             sb = b if b < y1 else y1
             if sb > st:
-                x0 = c * stride
-                x1 = c2 * stride
-                if x1 > vw:
-                    x1 = vw
-                fr(x0, st - vy, x1 - x0, sb - st, cc)
+                sx0 = c * stride
+                sx1 = c2 * stride
+                if sx0 < vx:
+                    sx0 = vx
+                if sx1 > rx1:
+                    sx1 = rx1
+                if sx1 > sx0:
+                    fr(sx0 - vx, st - vy, sx1 - sx0, sb - st, cc)
             c = c2
