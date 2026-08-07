@@ -267,6 +267,20 @@ class Buttons:
         sets PICOGAME_USB=0); `usb=True` = force (also on the CPython sim, for deliberate testing - still
         no-ops if no pad/driver). Silent on every failure (no usb.core, no pad plugged in, driver not
         copied) so games run unchanged on any board."""
+        # I2C gamepads first (independent of the `usb` gate): generic recipe-described pads
+        # (presets like the Pimoroni QwSTPad, or any expander via one settings line). OPT-IN
+        # via settings.toml because expanders have no identity to auto-probe safely. See
+        # picogame_i2cpad for the keys (PICOGAME_I2CPAD, PICOGAME_I2C).
+        spec = os.getenv("PICOGAME_I2CPAD")
+        if spec and str(spec) != "0":
+            try:
+                import picogame_i2cpad
+                for pad in picogame_i2cpad.attach(spec):
+                    self._sources.append(pad)
+                    self._mapped |= pad.mapped
+            except Exception as e:
+                import picogame_debug
+                picogame_debug.note("input: I2C pad not attached ->", repr(e))
         if usb is False:
             return
         if usb is None:
