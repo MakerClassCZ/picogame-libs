@@ -121,3 +121,22 @@ def test_missing_device_raises():
         assert False
     except OSError:
         pass
+
+
+def test_attach_retries_transient_failure():
+    # first construction attempt dies mid-init (stuck-bus style), the retry succeeds
+    i2c = FakeI2C()
+    orig = i2c.writeto
+    fails = [2]
+
+    def flaky(addr, buf):
+        if fails[0] > 0:
+            fails[0] -= 1
+            raise OSError(116)
+        orig(addr, buf)
+
+    i2c.writeto = flaky
+    pads = P.attach("qwstpad", i2c)
+    assert len(pads) == 1
+    i2c.state = 1 << 1
+    assert pads[0].read() == I.UP

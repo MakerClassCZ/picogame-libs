@@ -58,14 +58,48 @@ PRESETS = {
 }
 
 
+def _unstick(scl, sda):
+    """Classic I2C bus recovery: clock SCL up to 9 times so a slave stuck mid-transaction
+    (holding SDA low - e.g. after a soft reload interrupted a read) releases the bus.
+    Expander pads otherwise keep the bus dead until a power cycle: every transaction in the
+    next program times out with OSError(116) even though the device is fine."""
+    import time
+    import digitalio
+    s = digitalio.DigitalInOut(scl)
+    d = digitalio.DigitalInOut(sda)
+    try:
+        d.switch_to_input(pull=digitalio.Pull.UP)
+        s.switch_to_output(value=True, drive_mode=digitalio.DriveMode.OPEN_DRAIN)
+        for _ in range(9):
+            if d.value:                              # SDA released - bus is free
+                break
+            s.value = False
+            time.sleep(0.00002)
+            s.value = True
+            time.sleep(0.00002)
+        # STOP condition (SDA low->high while SCL high) so the slave state machine resets
+        d.switch_to_output(value=False, drive_mode=digitalio.DriveMode.OPEN_DRAIN)
+        time.sleep(0.00002)
+        d.value = True
+        time.sleep(0.00002)
+    finally:
+        s.deinit()
+        d.deinit()
+
+
 def _bus():
-    """The I2C bus: PICOGAME_I2C="SDA,SCL" pins on a bare board, else the board's own bus."""
+    """The I2C bus: PICOGAME_I2C="SDA,SCL" pins on a bare board, else the board's own bus.
+    With explicit pins the bus is unstuck (9-clock recovery) before construction - use
+    PICOGAME_I2C even on boards with a built-in bus if pads die after a soft reload."""
     import board
     spec = os.getenv("PICOGAME_I2C")
     if spec:
         import busio
         sda, scl = (p.strip() for p in str(spec).replace(",", " ").split())
-        return busio.I2C(_pi._resolve_pin(scl), _pi._resolve_pin(sda))
+        sda = _pi._resolve_pin(sda)
+        scl = _pi._resolve_pin(scl)
+        _unstick(scl, sda)
+        return busio.I2C(scl, sda)
     if hasattr(board, "STEMMA_I2C"):
         return board.STEMMA_I2C()
     return board.I2C()
@@ -186,12 +220,20 @@ def _spec_recipe(segment):
 def attach(spec, i2c=None):
     """Pads for the PICOGAME_I2CPAD settings value — ";"-separated segments, one pad each.
     Used by picogame_input.Buttons; raises if a listed pad doesn't answer."""
+    import time
     if i2c is None:
         i2c = _bus()
     pads = []
     for seg in str(spec).split(";"):
         recipe, addr = _spec_recipe(seg)
-        pad = I2CPad(recipe, i2c, addr)
+        for attempt in range(3):                     # a retry also clocks a sluggish bus free
+            try:
+                pad = I2CPad(recipe, i2c, addr)
+                break
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.01)
         try:
             pad.led(len(pads) + 1, True)
         except OSError:
