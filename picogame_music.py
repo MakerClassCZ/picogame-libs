@@ -225,7 +225,8 @@ class Player:
         elif fx == 6 or fx == 7:              # arpeggio over the row group of 4
             g = (i & ~3) * 3
             freqs = tuple(_FREQ[data[g + k * 3] & 63] for k in range(4))
-            sub = (dur // 4) if fx == 6 else (dur // 2)   # fast: 4 steps per row
+            # picotool spec: steps run "at speed 2 (fast) / 4 (slow)" - ABSOLUTE ticks
+            sub = (2 if fx == 6 else 4) * _TICK_NS
             self._ch_arp[ch] = (freqs, sub, self._now() + sub, i & 3)
         self._synth.press(note)
         self._ch_note[ch] = note
