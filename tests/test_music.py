@@ -37,10 +37,25 @@ class FakeSynth:
         self.events.append(("release", n))
 
 
+class FakeVoice:
+    def __init__(self):
+        self.playing = None
+
+    def play(self, s):
+        self.playing = s
+
+
+class FakeMixer:
+    def __init__(self):
+        self.voice = [FakeVoice(), FakeVoice()]
+
+
 class FakeHost:
     def __init__(self):
         self.available = True
-        self.synth = FakeSynth()
+        self.sample_rate = 22050
+        self.mixer = FakeMixer()
+        self.synth = FakeSynth()      # the sfx-side synth (voice 1) - music must NOT use it
 
 
 class Clock:
@@ -54,8 +69,9 @@ class Clock:
 def make(bank):
     host = FakeHost()
     clk = Clock()
-    p = M.Player(host, bank, _now=clk)
-    return p, host.synth, clk
+    s = FakeSynth()
+    p = M.Player(host, bank, _now=clk, _synth=s)
+    return p, s, clk
 
 
 def test_first_tick_presses_active_channels():
@@ -144,6 +160,18 @@ def test_silent_host_is_noop():
         synth = None
     bank = Bank({1: sfx([note(24)])}, ((1, 0xFF, 0xFF, 0xFF, 0),))
     p = M.Player(Off(), bank)
+    assert not p.available
     p.play(0)
     p.tick()                                          # must not raise
     p.stop()
+
+
+def test_own_synth_on_music_voice():
+    # without the test hook the player builds its own synthesizer and puts it on the
+    # mixer's MUSIC voice (voice 0) - never on the sfx synth
+    bank = Bank({1: sfx([note(24)])}, ((1, 0xFF, 0xFF, 0xFF, 0),))
+    host = FakeHost()
+    p = M.Player(host, bank)
+    assert host.mixer.voice[0].playing is p._synth
+    assert p._synth is not host.synth
+    assert p.available

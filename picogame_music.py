@@ -8,6 +8,10 @@
 #   music.play(0)                      # pattern index; honors loop/stop flags
 #   ... in the game loop: music.tick() # once per frame
 #
+# Plays on the mixer's MUSIC voice (voice 0, own synthesizer) - `set_levels(music=...)`
+# fades it, and the sfx Kit on voice 1 can never cut a music note. Shares the voice
+# with `load_midi` MidiTracks: use one music system at a time.
+#
 # MEASURED COST (PicoPad RP2040, review/synth_music_bench.py): 4 sustained voices with
 # note churn + LFO = ~3.0 ms/frame at 30 fps, no extra frame spikes, sfx on top ~free.
 # Scales with channels (~0.75 ms each) - tight games bake with `p8music.py --channels 2`.
@@ -42,11 +46,22 @@ def _ramp(a, b):
 
 
 class Player:
-    def __init__(self, synth_host, bank, level=1.0, _now=time.monotonic_ns):
+    def __init__(self, synth_host, bank, level=1.0, _now=time.monotonic_ns, _synth=None):
         """`synth_host` = picogame_synth.Synth; `bank` = a generated song module (or any
-        object with .SFX and .PATTERNS). `level` scales all music volumes 0..1."""
+        object with .SFX and .PATTERNS). `level` scales all music volumes 0..1.
+        The player brings its OWN synthesizer on the mixer's MUSIC voice (voice 0 - the
+        same slot `load_midi` uses), so `set_levels(music=...)` applies to it and the
+        sfx Kit's note management never touches music notes. One music system at a time
+        on that voice: PICO-8 music or a MidiTrack, not both."""
         self._on = bool(getattr(synth_host, "available", False))
-        self._synth = synth_host.synth if self._on else None
+        if not self._on:
+            self._synth = None
+        elif _synth is not None:
+            self._synth = _synth                 # test hook
+        else:
+            self._synth = synthio.Synthesizer(sample_rate=synth_host.sample_rate,
+                                              channel_count=1)
+            synth_host.mixer.voice[0].play(self._synth)
         self._sfx = bank.SFX
         self._patterns = bank.PATTERNS
         self._level = level
@@ -67,6 +82,10 @@ class Player:
         self._ch_next = [0] * 4
         self._ch_note = [None] * 4
         self._ch_arp = [None] * 4            # (freqs, sub_dur_ns, next_ns, idx) or None
+
+    @property
+    def available(self):
+        return self._on
 
     # --- waveforms (lazy; PICO-8 0-7) --------------------------------------------
     def _wave(self, w):
