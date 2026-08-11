@@ -69,7 +69,9 @@ PROFILES = {                                  # add new boards here, keyed by bo
 
 
 def _resolve_pin(name_or_obj):
-    """A profile pin: an actual Pin object, a board attribute name, or a bare 'GPn' (microcontroller)."""
+    """A profile pin: an actual Pin object, a board attribute name, or a bare 'GPn'/'GPIOn'
+    (microcontroller). 'GPn' also resolves on boards without Pico-style aliases (e.g. the
+    Fruit Jam), where microcontroller.pin names pins 'GPIOn'."""
     if not isinstance(name_or_obj, str):
         return name_or_obj
     pin = getattr(board, name_or_obj, None)
@@ -77,6 +79,8 @@ def _resolve_pin(name_or_obj):
         try:
             import microcontroller
             pin = getattr(microcontroller.pin, name_or_obj, None)
+            if pin is None and name_or_obj.startswith("GP") and not name_or_obj.startswith("GPIO"):
+                pin = getattr(microcontroller.pin, "GPIO" + name_or_obj[2:], None)
         except ImportError:
             pin = None
     return pin

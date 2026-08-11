@@ -140,3 +140,24 @@ def test_attach_retries_transient_failure():
     assert len(pads) == 1
     i2c.state = 1 << 1
     assert pads[0].read() == I.UP
+
+
+def test_bus_unresolvable_pins_raise_clearly():
+    # field bug (Fruit Jam): PICOGAME_I2C = "GP20,GP21" - no such names there, and
+    # busio.I2C(None, None) used to throw an opaque TypeError. Now: a clear ValueError.
+    import os
+    os.environ["PICOGAME_I2C"] = "NOPE_A,NOPE_B"
+    try:
+        P._bus()
+        assert False
+    except ValueError as e:
+        assert "NOPE" in str(e) and "GPIOn" in str(e)
+    finally:
+        del os.environ["PICOGAME_I2C"]
+
+
+def test_resolve_pin_gp_to_gpio_translation():
+    import picogame_input as I2
+    assert I2._resolve_pin("GP20") is not None      # translated to GPIO20 (Fruit Jam case)
+    assert I2._resolve_pin("GPIO7") is not None
+    assert I2._resolve_pin("TOTALLY_BOGUS") is None

@@ -94,10 +94,13 @@ def _bus():
     import board
     spec = os.getenv("PICOGAME_I2C")
     if spec:
+        sda_name, scl_name = (p.strip() for p in str(spec).replace(",", " ").split())
+        sda = _pi._resolve_pin(sda_name)
+        scl = _pi._resolve_pin(scl_name)
+        if sda is None or scl is None:
+            raise ValueError("PICOGAME_I2C pin %r not found on this board (try the"
+                             " 'GPIOn' name)" % (sda_name if sda is None else scl_name))
         import busio
-        sda, scl = (p.strip() for p in str(spec).replace(",", " ").split())
-        sda = _pi._resolve_pin(sda)
-        scl = _pi._resolve_pin(scl)
         _unstick(scl, sda)
         return busio.I2C(scl, sda)
     if hasattr(board, "STEMMA_I2C"):
