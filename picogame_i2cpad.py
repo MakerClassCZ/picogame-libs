@@ -97,12 +97,12 @@ def _try_unstick(scl, sda):
 
 
 def _bus():
-    """The I2C bus: PICOGAME_I2C="SDA,SCL" pins on a bare board, else the board's own bus.
-    With explicit pins the bus is unstuck (9-clock recovery) before construction - use
-    PICOGAME_I2C even on boards with a built-in bus if pads die after a soft reload.
-    Pins that ARE the board's own bus (e.g. Fruit Jam SDA/SCL = GPIO20/21) route to the
-    shared board.I2C() singleton - audio and friends already live on it, and a private
-    busio.I2C on the same pins would fail with 'I2C peripheral in use'."""
+    """The I2C bus: PICOGAME_I2C="SDA,SCL" pins on a bare board, else the board's own
+    bus. The 9-clock soft-reload recovery runs in both paths (keyless via board.SDA/SCL
+    when the board names them) - the key exists for bare boards / non-standard wiring
+    only. Explicit pins that ARE the board's own bus (e.g. Fruit Jam SDA/SCL) route to
+    the shared board.I2C() singleton - audio and friends already live on it, and a
+    private busio.I2C on the same pins would fail with 'I2C peripheral in use'."""
     import board
     spec = os.getenv("PICOGAME_I2C")
     if spec:
