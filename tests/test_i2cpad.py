@@ -161,3 +161,25 @@ def test_resolve_pin_gp_to_gpio_translation():
     assert I2._resolve_pin("GP20") is not None      # translated to GPIO20 (Fruit Jam case)
     assert I2._resolve_pin("GPIO7") is not None
     assert I2._resolve_pin("TOTALLY_BOGUS") is None
+
+
+def test_bus_board_pins_route_to_singleton():
+    # field bug #2 (Fruit Jam): explicit pins that ARE the board bus (SDA/SCL=GPIO20/21,
+    # shared with the audio DAC) must reuse board.I2C(), not build a private busio.I2C
+    # (which dies with 'I2C peripheral in use').
+    import os
+    import sys
+    board = sys.modules["board"]
+    sentinel_bus = object()
+    added = []
+    for name, val in (("SDA", object()), ("SCL", object()), ("I2C", lambda: sentinel_bus)):
+        if not hasattr(board, name):
+            setattr(board, name, val)
+            added.append(name)
+    os.environ["PICOGAME_I2C"] = "SDA,SCL"
+    try:
+        assert P._bus() is board.I2C()
+    finally:
+        del os.environ["PICOGAME_I2C"]
+        for name in added:
+            delattr(board, name)

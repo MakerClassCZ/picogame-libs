@@ -87,10 +87,22 @@ def _unstick(scl, sda):
         d.deinit()
 
 
+def _try_unstick(scl, sda):
+    """Bus recovery, but only when the pins are free to claim - pins already held in
+    THIS vm mean the bus object is alive (not stuck), so recovery is moot."""
+    try:
+        _unstick(scl, sda)
+    except Exception:
+        pass
+
+
 def _bus():
     """The I2C bus: PICOGAME_I2C="SDA,SCL" pins on a bare board, else the board's own bus.
     With explicit pins the bus is unstuck (9-clock recovery) before construction - use
-    PICOGAME_I2C even on boards with a built-in bus if pads die after a soft reload."""
+    PICOGAME_I2C even on boards with a built-in bus if pads die after a soft reload.
+    Pins that ARE the board's own bus (e.g. Fruit Jam SDA/SCL = GPIO20/21) route to the
+    shared board.I2C() singleton - audio and friends already live on it, and a private
+    busio.I2C on the same pins would fail with 'I2C peripheral in use'."""
     import board
     spec = os.getenv("PICOGAME_I2C")
     if spec:
@@ -100,8 +112,12 @@ def _bus():
         if sda is None or scl is None:
             raise ValueError("PICOGAME_I2C pin %r not found on this board (try the"
                              " 'GPIOn' name)" % (sda_name if sda is None else scl_name))
+        if getattr(board, "SDA", None) is sda and getattr(board, "SCL", None) is scl \
+                and hasattr(board, "I2C"):
+            _try_unstick(scl, sda)          # effective only before the singleton exists
+            return board.I2C()
+        _try_unstick(scl, sda)
         import busio
-        _unstick(scl, sda)
         return busio.I2C(scl, sda)
     if hasattr(board, "STEMMA_I2C"):
         return board.STEMMA_I2C()
