@@ -183,3 +183,28 @@ def test_bus_board_pins_route_to_singleton():
         del os.environ["PICOGAME_I2C"]
         for name in added:
             delattr(board, name)
+
+
+def test_keyless_bus_recovers_via_board_sda_scl():
+    # no PICOGAME_I2C needed for soft-reload recovery on boards that name their
+    # pins: the CP convention puts board.I2C() on board.SDA/SCL, so _bus() runs
+    # the 9-clock unstick there before first singleton use.
+    import sys
+    board = sys.modules["board"]
+    sentinel_bus = object()
+    calls = []
+    orig = P._unstick
+    P._unstick = lambda scl, sda: calls.append((scl, sda))
+    added = []
+    for name, val in (("SDA", object()), ("SCL", object()),
+                      ("STEMMA_I2C", lambda: sentinel_bus)):
+        if not hasattr(board, name):
+            setattr(board, name, val)
+            added.append(name)
+    try:
+        assert P._bus() is sentinel_bus
+        assert calls == [(board.SCL, board.SDA)]
+    finally:
+        P._unstick = orig
+        for name in added:
+            delattr(board, name)

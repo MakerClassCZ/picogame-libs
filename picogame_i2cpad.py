@@ -119,6 +119,13 @@ def _bus():
         _try_unstick(scl, sda)
         import busio
         return busio.I2C(scl, sda)
+    # No key: the board's own bus. CP convention puts board.I2C() on board.SDA/SCL,
+    # so when those names exist the soft-reload bus recovery works here too - the key
+    # is only needed for bare boards / non-standard wiring.
+    scl = getattr(board, "SCL", None)
+    sda = getattr(board, "SDA", None)
+    if scl is not None and sda is not None:
+        _try_unstick(scl, sda)
     if hasattr(board, "STEMMA_I2C"):
         return board.STEMMA_I2C()
     return board.I2C()
