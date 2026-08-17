@@ -78,3 +78,26 @@ def test_bag_no_immediate_exhaustion():
     bag = R.Bag(list(range(5)), R.Rand(42))
     first_cycle = [bag.next() for _ in range(5)]
     assert sorted(first_cycle) == list(range(5))   # all 5, no repeat within the cycle
+
+
+def test_small_int_safe_core():
+    # Every intermediate of _next() must stay below 2**30 so a MicroPython small int (31-bit
+    # signed on 32-bit boards) never spills into a heap big int - the whole point of the
+    # combined-Lehmer core. Guarded subclass re-derives the Schrage terms and asserts them.
+    import picogame_rand as pr
+    LIM = 1 << 30
+
+    class Guard(pr.Rand):
+        def _next(self):
+            x, y = self._x, self._y
+            assert 0 < x < LIM and 0 < y < LIM
+            assert pr._A1 * (x % pr._Q1) < LIM and pr._R1 * (x // pr._Q1) < LIM
+            assert pr._A2 * (y % pr._Q2) < LIM and pr._R2 * (y // pr._Q2) < LIM
+            z = super()._next()
+            assert 1 <= z < LIM
+            return z
+
+    for seed in (0, 1, 0x1234, 0x3FFFFFFF, 2**31 - 1):
+        g = Guard(seed)
+        for _ in range(5000):
+            g.below(6)
