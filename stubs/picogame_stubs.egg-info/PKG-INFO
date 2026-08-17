@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: picogame-stubs
+Version: 0.1.31
+Summary: Type stubs for the picogame native module (CircuitPython 2D game engine) - editor autocomplete/typing for pylance, mypy, pyright.
+License: MIT
+Project-URL: Homepage, https://picogame.makerclass.cz
+Project-URL: Source, https://github.com/MakerClassCZ/picogame-libs
+Classifier: Typing :: Stubs Only
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+# picogame-stubs
+
+Type stubs (`.pyi`) for the **native `picogame` module** - the C game engine that ships in
+picogame CircuitPython firmware. They give VS Code (Pylance), Pyright and mypy autocomplete and
+type checking for `import picogame as pg` while you edit a game on your PC.
+
+    pip install picogame-stubs            # (or from the release zip - see below)
+
+The `picogame_*` helper libraries are plain Python: point Pylance at a checkout of this repo
+(`python.analysis.extraPaths`), not at the board's `/lib` (`.mpy` bytecode can't be analysed).
+For `board`, `displayio`, `synthio`... use `pip install circuitpython-stubs`.
+
+The stub is generated from the engine's `//|` docstrings in
+`shared-bindings/picogame` (`tools/extract_pyi.py` from CircuitPython) - the same source that
+builds the docs at https://picogame.makerclass.cz/reference/, so it can't drift from the firmware.

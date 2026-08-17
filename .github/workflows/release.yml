@@ -59,9 +59,20 @@ jobs:
             "dist/picogame-libs-${VERSION}.json" "${VERSION}" \
             "https://github.com/${GITHUB_REPOSITORY}"
 
+      - name: Build the picogame-stubs wheel (editor typing for the native module)
+        run: |
+          pip install --quiet build
+          VERSION=$(git describe --tags)
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" stubs/pyproject.toml
+          python -m build --wheel --outdir dist stubs
+          # a stable-name copy so docs can link .../releases/latest/download/picogame_stubs-latest-py3-none-any.whl
+          cp dist/picogame_stubs-*-py3-none-any.whl dist/picogame_stubs-latest-py3-none-any.whl
+          ls dist/picogame_stubs-*.whl
+
       - name: Attach bundles to the release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/picogame-libs-*.zip
             dist/picogame-libs-*.json
+            dist/picogame_stubs-*.whl

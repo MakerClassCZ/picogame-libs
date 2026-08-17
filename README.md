@@ -30,6 +30,12 @@ circup install picogame_shapes                   # pulls its deps too (e.g. ui -
 circup update                                     # later: refresh installed modules
 ```
 
+### Editor autocomplete (VS Code / Pylance, Pyright, mypy)
+Point `python.analysis.extraPaths` at a checkout of this repo (the `.py` sources - not the board's
+`/lib` of `.mpy`), `pip install circuitpython-stubs` for `board`/`displayio`/..., and install the
+**`picogame-stubs`** wheel attached to every release for the native `picogame` module (generated from
+the engine's docstrings; source in [`stubs/`](stubs/)). Walkthrough: https://picogame.makerclass.cz/editor-setup/
+
 ---
 
 ## Scaffolding - stand a game up fast

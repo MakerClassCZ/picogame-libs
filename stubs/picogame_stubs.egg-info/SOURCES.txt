@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+picogame-stubs/__init__.pyi
+picogame-stubs/py.typed
+picogame_stubs.egg-info/PKG-INFO
+picogame_stubs.egg-info/SOURCES.txt
+picogame_stubs.egg-info/dependency_links.txt
+picogame_stubs.egg-info/top_level.txt
