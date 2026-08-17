@@ -24,6 +24,11 @@ import os
 
 import digitalio
 from micropython import const
+try:
+    from picogame_debug import note as _debug   # optional diagnostics (settings.toml PICOGAME_DEBUG=1)
+except ImportError:                             # not deployed -> silent no-op, never a dependency
+    def _debug(*args):
+        pass
 
 # Logical buttons - a SUPERSET; a board maps the subset it has.
 UP, DOWN, LEFT, RIGHT, A, B, X, Y = (1 << i for i in range(8))
@@ -283,8 +288,7 @@ class Buttons:
                     self._sources.append(pad)
                     self._mapped |= pad.mapped
             except Exception as e:
-                import picogame_debug
-                picogame_debug.note("input: I2C pad not attached ->", repr(e))
+                _debug("input: I2C pad not attached ->", repr(e))
         if usb is False:
             return
         if usb is None:
@@ -313,8 +317,7 @@ class Buttons:
             self._sources.append(pad)
             self._mapped |= pad.mapped       # has() now reports the pad's actually-mapped buttons
         except Exception as e:
-            import picogame_debug
-            picogame_debug.note("input: USB gamepad not attached ->", repr(e))
+            _debug("input: USB gamepad not attached ->", repr(e))
         if str(os.getenv("PICOGAME_KBD", "1")) == "0":
             return
         try:
@@ -325,8 +328,7 @@ class Buttons:
             self._sources.append(kbd)
             self._mapped |= kbd.mapped
         except Exception as e:
-            import picogame_debug
-            picogame_debug.note("input: USB keyboard not attached ->", repr(e))
+            _debug("input: USB keyboard not attached ->", repr(e))
 
     def _init_matrix(self, m, debounce_s):
         """Row x column matrix backend (keypad.KeyMatrix). Same Event queue as keypad.Keys, so poll()
