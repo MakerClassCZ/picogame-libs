@@ -208,3 +208,45 @@ def test_keyless_bus_recovers_via_board_sda_scl():
         P._unstick = orig
         for name in added:
             delattr(board, name)
+
+
+def test_attach_recovers_a_wedged_bus():
+    # A pad interrupted mid-read holds SDA low: every transaction then times out, even though the
+    # device is fine (measured on a Fruit Jam + QwSTPad, 2026-08-18). attach() must clock the bus
+    # free and retry instead of giving up - the plain retries alone never helped, because the live
+    # bus object keeps the pins claimed so _try_unstick could not run.
+    bus = FakeI2C()
+    bus.fail_reads = 2                      # the presence-probe read fails twice, then heals
+    recovered = []
+
+    orig = P._recover
+
+    def fake_recover(i2c):
+        recovered.append(i2c)
+        return i2c                          # same bus; the retry is what proves the trigger
+
+    P._recover = fake_recover
+    try:
+        pads = P.attach("qwstpad", i2c=bus)
+    finally:
+        P._recover = orig
+    assert len(pads) == 1
+    assert len(recovered) == 1, "attach() must attempt the bus recovery before giving up"
+
+
+def test_attach_raises_when_recovery_does_not_help():
+    # A pad that is simply absent must still raise (recovery is not a way to swallow errors).
+    bus = FakeI2C(present=False)
+    calls = []
+    orig = P._recover
+    P._recover = lambda i2c: calls.append(i2c) or i2c
+    try:
+        raised = False
+        try:
+            P.attach("qwstpad", i2c=bus)
+        except OSError:
+            raised = True
+        assert raised
+        assert len(calls) == 1
+    finally:
+        P._recover = orig
