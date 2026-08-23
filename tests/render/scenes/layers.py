@@ -15,10 +15,10 @@ TILES = shp.tileset_colors(10, 10, [pg.rgb565(40, 120, 40), pg.rgb565(120, 80, 4
 tm = pg.Tilemap(TILES, 8, 6)
 for gy in range(6):
     for gx in range(8):
-        tm.tile(gx, gy, (gx + gy) % 3)                 # 0 = empty (F2), 1/2 = solid (F1)
-tm.tile(1, 1, 1, flip_x=True)                          # F3 orientation flags
-tm.tile(2, 1, 2, flip_y=True)
-tm.tile(3, 1, 1, transpose=True)
+        tm.set_tile(gx, gy, (gx + gy) % 3)                 # 0 = empty (F2), 1/2 = solid (F1)
+tm.set_tile(1, 1, 1, flip_x=True)                          # F3 orientation flags
+tm.set_tile(2, 1, 2, flip_y=True)
+tm.set_tile(3, 1, 1, transpose=True)
 tm.move(24, 48)                                        # F4
 scene.add(tm)                                          # non-fixed -> shifts with set_view
 
