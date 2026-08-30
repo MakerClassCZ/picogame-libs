@@ -85,6 +85,7 @@ the engine's docstrings; source in [`stubs/`](stubs/)). Walkthrough: https://pic
 | `picogame_anim` | `FrameAnim` / `AnimatedSprite` - drive a Sprite's frame from a time-based sequence (no more `(frame//4)%n`). |
 | `picogame_tiles` | `TileFlags` - per-tile metadata bitfield keyed by tile index (solid / hazard / ladder ...); turns tilemap collision into a flag lookup. |
 | `picogame_seq` | `Seq` - write timed/sequenced logic as generators (cutscenes, "do X over N frames", staged AI). `wait`, `over`, `move_over`. |
+| `picogame_script` | `Director` - story scripts as generators on top of `Seq`: `text`/`ask` dialog (a zero-RAM `SceneBox`), `fade_in`/`fade_out`, `wait`, a script registry your zones can name (`{"script": "intro"}`), and event flags for "already happened". One `tick()` per frame; nothing blocks. |
 
 ## Numbers
 | Module | Provides |
