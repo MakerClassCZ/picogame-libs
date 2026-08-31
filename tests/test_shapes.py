@@ -58,3 +58,28 @@ def test_masks_rejects_a_single_mask():
     except TypeError:
         return
     raise AssertionError("a flat string list must raise, not silently make 1px frames")
+
+
+def test_from_mask_multicolour_palette():
+    """One mask, several colours: the design bar wants shape AND colour identity, and three
+    probe agents hand-built a PAL8 atlas because from_mask took a single colour."""
+    A, B = 0xF800, 0x07E0
+    bm = shp.from_mask(["#o", ".."], {"#": A, "o": B})
+    assert _frame(bm, 0, 2, 2, 1) == [[1, 2], [0, 0]]    # own index each; '.' transparent
+    assert list(bm.palette)[1:3] == [A, B]               # ... and index -> the given colours
+
+
+def test_masks_multicolour_palette():
+    A, B = 0xF800, 0x001F
+    bm = shp.masks([["#o"], ["o#"]], {"#": A, "o": B})
+    assert _frame(bm, 0, 2, 1, 2) == [[1, 2]]
+    assert _frame(bm, 1, 2, 1, 2) == [[2, 1]]
+    assert list(bm.palette)[1:3] == [A, B]
+
+
+def test_mask_palette_rejects_multichar_keys():
+    try:
+        shp.from_mask(["#"], {"##": 1})
+    except ValueError:
+        return
+    raise AssertionError("a multi-character palette key must raise")

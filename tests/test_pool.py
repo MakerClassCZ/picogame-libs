@@ -161,3 +161,21 @@ def test_every_slot_is_added_to_the_scene_hidden():
     assert all(fixed for _, fixed in scene.added)
     assert all(not s.visible for s in p.items)
     assert all(s.anchor == (0.5, 0.5) for s in p.items)
+
+
+def test_spawn_restores_baseline_look():
+    """A recycled slot must not wear the previous user's blit effect (a hit-flash that means
+    'lethal' in one game came back on a harmless entity) - but a pool configured at build time
+    (squest_full scales its pooled sprites) must KEEP that configuration."""
+    p = make(2)
+    for s in p.items:                       # build-time configuration ...
+        s.scale = 2.0
+    p.baseline()                            # ... becomes the baseline
+    a = p.spawn()
+    a.flash = 0xF800                        # runtime effect during its life
+    a.scale = 3.0
+    p.free(a)
+    b = p.spawn()
+    assert b is a                           # same slot back
+    assert not b.flash                      # runtime effect cleared
+    assert b.scale == 2.0                   # configured baseline preserved
