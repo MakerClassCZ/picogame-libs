@@ -57,8 +57,8 @@ def test_script_runs_stepwise_and_finishes():
     assert d.active
     assert d.tick() is True        # runs up to the yield
     assert seen == ["a"]
-    assert d.tick() is False       # finishes; returns False the frame it ends
-    assert seen == ["a", "b"]
+    assert d.tick() is True        # the FINISHING step still reports running,
+    assert seen == ["a", "b"]      # so its input cannot leak into game logic
     assert not d.active
     assert d.tick() is False       # idle ticks are cheap no-ops
 
@@ -77,8 +77,9 @@ def test_text_waits_for_a_and_ignores_the_starting_press():
     assert d.tick() is True        # frame 2: no press -> still waiting
     assert d._box._visible if hasattr(d._box, "_visible") else True
     btn.press(btn.A)
-    assert d.tick() is False       # dismissed -> script ends
+    assert d.tick() is True        # dismissed; the dismissing frame still "runs"
     assert not d.active
+    assert d.tick() is False       # ...and only the NEXT frame frees the input
 
 
 def test_ask_sets_answer_from_a_or_b():
@@ -108,7 +109,7 @@ def test_wait_counts_frames():
     ticks = 0
     while d.tick():
         ticks += 1
-    assert ticks == 3
+    assert ticks == 4              # 3 waits + the finishing step
 
 
 def test_start_refuses_while_running_and_events_persist():
@@ -159,3 +160,26 @@ def test_fade_out_drives_fx_until_done():
     assert not d.active, "fade never finished"
     assert 0 < ticks < 120
     assert d._fade.is_done
+
+
+def test_retarget_rebinds_scene_and_keeps_story():
+    btn = FakeButtons()
+    d, _ = _director(btn)
+
+    def s(d):
+        yield from d.text(["hello"])
+
+    d.start(s)
+    d.tick()                       # builds the box on the first scene
+    old_box = d._box
+    d.ev_set("met_elder")
+    btn.press(btn.A)
+    d.tick()                       # dismiss, script ends
+    v2 = _view()                   # "another map"
+    d.retarget(v2.scene)
+    assert d._box is None and d._fade is None
+    assert d.scene is v2.scene
+    assert d.ev("met_elder")       # the story survives the move
+    d.start(s)
+    d.tick()
+    assert d._box is not old_box   # box rebuilt on the new scene
