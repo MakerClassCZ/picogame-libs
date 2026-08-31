@@ -49,10 +49,10 @@ def test_render_mixed_text():
     fg = pg.rgb565(0, 255, 0)
     bmp, w, h = picogame_font.render_text(pg, f, "Žluťoučký ←→", fg)
     assert (w, h) == (12 * 6, 12)
-    assert any(bmp.data)                         # some ink rendered
+    assert any(bmp._data)                         # some ink rendered
     # unknown glyphs render as blank cells, not crashes
     bmp2, _, _ = picogame_font.render_text(pg, f, "中", fg)
-    assert not any(bmp2.data)
+    assert not any(bmp2._data)
 
 
 def test_first_load_wins_and_charcell_guard():

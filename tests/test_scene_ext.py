@@ -43,9 +43,9 @@ def _mini_scene():
 def test_loader_applies_orient_angle_and_data():
     v = picogame_scene.load(pg, _mini_scene())
     tm = v.tilemap
-    assert tm.orient is not None
-    assert tm.orient[1] == 5                              # flipX + transpose survived
-    assert tm.orient[0] == 0 and tm.orient[3] == 0
+    assert tm._orient is not None
+    assert tm._orient[1] == 5                              # flipX + transpose survived
+    assert tm._orient[0] == 0 and tm._orient[3] == 0
     assert v.named["hero"].angle == 90
     assert v.named["hero"].data == {"hp": 3}
     assert v.pdata["spawn"] == {"wave": 1}
@@ -63,7 +63,7 @@ def test_loader_backcompat_old_tuples():
     s["zones"] = [("goal", 0, 0, 8, 8)]                             # 5-tuple zone
     del s["pdata"]
     v = picogame_scene.load(pg, s)
-    assert v.tilemap.orient is None
+    assert v.tilemap._orient is None
     assert v.named["old"].angle == 0
     assert v.pdata == {}
     assert v.in_zone(1, 1, "goal") is not None
