@@ -69,6 +69,7 @@ the engine's docstrings; source in [`stubs/`](stubs/)). Walkthrough: https://pic
 | Module | Provides |
 |---|---|
 | `picogame_mode7` | `Camera` - drive the C `Canvas.mode7` perspective floor (the SNES Mode-7 look) from a world position + heading. Racers, overworld maps. |
+| `picogame_road` | `Road` - drive the C `pg.road_edges` + `Canvas.road` pair (the OutRun scanline road) from human units: curve periods/swing in px, hills as a moving horizon, safe phase wrap, and `curve_at()`/`row_of()` for physics + sprites. |
 | `picogame_ray` | A first-person raycaster - Wolfenstein-style corridors and dungeons from a tile grid. |
 | `picogame_iso` | Isometric projection: the cheapest pseudo-3D there is, no perspective maths. |
 
