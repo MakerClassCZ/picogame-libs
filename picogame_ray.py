@@ -13,11 +13,15 @@
 # leaves a per-column wall z-buffer (rc.zbuf); project each sprite with
 # project_sprite(worldx, worldy) and drive a pooled pg.Sprite from the result -
 #   rc.cast(px, py, ang, W, H)
-#   for e in sorted(enemies, key=lambda e: -e.dist2(px, py)):   # far-to-near
+#   # A Scene draws in the order items were ADDED, so iterating your own list in sorted order
+#   # does NOT reorder anything - sort, then write the sorted enemies into a FIXED list of
+#   # sprites added once. The nearest lands in the last slot, which is drawn last, on top.
+#   for e, spr in zip(sorted(enemies, key=lambda e: -e.dist2(px, py)), SLOTS):   # far-to-near
 #       p = rc.project_sprite(e.wx, e.wy)
 #       if p:
 #           sx, size, e.d = p
-#           e.spr.x, e.spr.y = sx, HORIZON_Y        # anchor (0.5, 0.5)
+#           spr.bitmap = e.bmp                      # the slot shows whoever it holds this frame
+#           spr.x, spr.y = sx, HORIZON_Y            # anchor (0.5, 0.5)
 #           e.spr.scale = size / BMP_H              # bitmap is BMP_H px tall
 #           e.spr.visible = True
 #       else:
@@ -47,7 +51,7 @@ import picogame as _pg
 class Raycaster:
     def __init__(self, world, wall_colors, sky, floor, fov=0.66, stride=2):
         # world: list of strings; wall_colors: {type_int: (near_color, side_color)}
-        self.map = world
+        self.map = list(world)               # a copy set_cell() can rewrite rows of
         self.mw = len(world[0])
         self.mh = len(world)
         # flat int grid for the hot DDA loop: flat[y*mw+x] = wall type (0 = empty).
@@ -105,8 +109,23 @@ class Raycaster:
 
     def solid(self, x, y):
         if 0 <= x < self.mw and 0 <= y < self.mh:
-            return self.map[y][x] != "0"
+            return self._flat[y * self.mw + x] != 0    # _flat is the truth (set_cell mutates it)
         return True                          # out of bounds = wall
+
+    def set_cell(self, x, y, v):
+        """Change ONE world cell at runtime - a door opening, a wall dropping, a secret
+        revealed. v = wall type 0-9 (0 = empty; string maps are single-digit by design).
+        Keeps everything consistent: the C caster's grid, solid(), and .map (minimaps),
+        and drops the pose cache so a STANDING camera still sees the change next frame.
+        For EVENTS, not animation - each call forces one full re-cast; swapping dozens of
+        cells per frame throws away the standing-still optimisation every frame."""
+        if not (0 <= x < self.mw and 0 <= y < self.mh):
+            return
+        v = int(v)
+        self._flat[y * self.mw + x] = v
+        row = self.map[y]
+        self.map[y] = row[:x] + str(v) + row[x + 1:]   # rare event -> the tiny alloc is fine
+        self._cang = None                    # invalidate the pose cache (see cast())
 
     def cast(self, px, py, ang, sw, sh):
         """DDA one ray per `stride` screen columns; cache wall top/bottom/colour.
@@ -196,8 +215,10 @@ class Raycaster:
           screen_x - centre x in screen px
           size     - on-screen height in px, the SAME scale as the walls: set
                      your sprite's scale to size / bitmap_height
-          depth    - perpendicular distance; sort your sprites far-to-near on it
-                     before positioning them, so nearer ones draw on top.
+          depth    - perpendicular distance. Sort far-to-near on it, then write the
+                     sorted entities into a FIXED list of Sprites you added to the
+                     Scene once: draw order is ADD order, so sorting your own list
+                     changes nothing on its own. The nearest goes in the last slot.
         Walls occlude via the per-column z-buffer (`margin` world units of slack
         so a sprite flush against a wall is not culled). The depth test is at the
         sprite's centre column only - right for a single billboard sprite: it is
@@ -223,7 +244,20 @@ class Raycaster:
 
     def draw(self, view, vx, vy, vw, vh):
         """StripDraw callback: sky/floor background for this band, then the pre-merged
-        wall runs that cross it (the RLE merge runs once per frame in cast(), not here)."""
+        wall runs that cross it (the RLE merge runs once per frame in cast(), not here).
+
+        ROW 0 IS THE TOP OF THE RAYCAST VIEW, not of the screen: the horizon sits at
+        `sh >> 1` of the height you passed `cast()`, compared against `vy`. If your layer
+        does NOT start at screen y=0 - the reserved-HUD-band pattern, `setup(top=BAND)` +
+        `StripDraw(cb, 0, BAND, W, H - BAND)` - pass `vy - BAND`:
+
+            def cb(view, vx, vy, vw, vh):
+                rc.draw(view, vx, vy - BAND, vw, vh)
+
+        Without it the whole view renders BAND pixels too high: the top of the picture hides
+        under the HUD and a strip of bare floor colour is left at the bottom. The alternative
+        is to keep the view full-screen (`cast(..., H)`, layer at y=0) and float the HUD over
+        it as fixed SceneLabels - costs no view height, which suits a first-person game."""
         if self.top is None:
             return
         fr = view.fill_rect
