@@ -103,7 +103,10 @@ class Raycaster:
         column band whose (top, bottom, colour) changed since the previous frame, so the Scene
         recomposites and pushes JUST those columns - unchanged columns keep last frame's pixels.
         Huge win when standing still / moving slowly (a lot of a raycast frame is identical to the
-        last). Without attach() the layer full-repaints every frame (use ``always_dirty=True``)."""
+        last). Without attach() the layer full-repaints every frame (use ``always_dirty=True``). NOTE: the diff
+        tracks WALL GEOMETRY only - changing sky/floor colours (a hurt flash) or anything
+        outside the wall columns repaints nothing by itself; call stripdraw.invalidate()
+        for that frame."""
         self._sd = stripdraw
         self._ptop = self._pbot = self._pcol = None    # force a full first repaint
 
