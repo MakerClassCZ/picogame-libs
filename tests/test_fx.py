@@ -64,3 +64,25 @@ def test_shake_add_clamps_to_one():
     sh.add(0.8)
     sh.add(0.8)
     assert sh.trauma <= 1.0
+
+
+def test_shake_sceneless_exposes_offsets_only():
+    """scene=None: no set_view target at all - tick() just publishes ox/oy for the game's
+    own renderer params (road lateral, raycaster horizon). The StripDraw-genre mode."""
+    sh = FX.Shake(None, max_offset=6)
+    assert sh.tick(3, 4) is False and (sh.ox, sh.oy) == (0, 0)   # idle: zero offset, no crash
+    sh.add(1.0)
+    moved = False
+    for _ in range(6):
+        sh.tick()
+        assert -6 <= sh.ox <= 6 and -6 <= sh.oy <= 6
+        moved = moved or sh.ox or sh.oy
+    assert moved                                    # the model actually produced offsets
+
+
+def test_shake_scene_mode_offsets_match_the_applied_view():
+    s = FakeScene()
+    sh = FX.Shake(s, max_offset=6)
+    sh.add(1.0)
+    sh.tick(10, 20)
+    assert s.view == (10 + sh.ox, 20 + sh.oy)       # ox/oy are exactly what set_view got
