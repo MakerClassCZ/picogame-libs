@@ -84,7 +84,7 @@ def test_hill_headroom_sizes_the_tables():
 def test_row_queries_are_consistent():
     r = make()
     row = r.row_of(0)
-    assert row == r.rows - 1           # z=0 -> at the car
+    assert row == r.rows - 1           # z=0 -> at the car (no hills: nominal == full bottom)
     assert r.row_of(10 ** 9) is None   # beyond the horizon
     assert r.half_of(r.rows - 1) > r.half_of(0)          # near > far
     r.tick(0)
@@ -100,3 +100,14 @@ def test_draw_paints_sky_and_road():
     assert cv._data[0] == COLORS["sky"]                       # above the horizon
     mid_bottom = (H - 1) * W + W // 2
     assert cv._data[mid_bottom] in (COLORS["road_a"], COLORS["road_b"], COLORS["dash"])
+
+
+def test_row_of_anchors_at_the_nominal_bottom_with_hills():
+    """The curve sampling anchors dist at the NOMINAL bottom row (cfg drow = nrow-1); row_of
+    must anchor there too, or every sprite sits hill_amp rows too low the moment hills are on
+    (the round-3 racing probe shipped its own mapping because of exactly this)."""
+    r = make(hill_amp=18)
+    nrow = (240 - 240 // 3)
+    assert r.cfg[6] == nrow - 1
+    assert r.row_of(0) == nrow - 1     # the car, NOT the headroom bottom
+    assert r.row_of(0) == r.cfg[6]     # one anchor for sampling and placement
