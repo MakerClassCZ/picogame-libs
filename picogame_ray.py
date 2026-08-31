@@ -238,7 +238,11 @@ class Raycaster:
         tx = inv * (self._diry * relx - self._dirx * rely)        # lateral (plane units)
         screen_x = int((self.sw >> 1) * (1.0 + tx / ty))
         ci = screen_x // self.stride
-        if 0 <= ci < len(zbuf) and int(ty * 65536) > zbuf[ci] + int(margin * 65536):
+        if ci < 0:                               # centre off-screen: test the nearest on-screen
+            ci = 0                               # column - skipping the test drew sprites THROUGH
+        elif ci >= len(zbuf):                    # edge walls (round-3 probe finding)
+            ci = len(zbuf) - 1
+        if int(ty * 65536) > zbuf[ci] + int(margin * 65536):
             return None                          # hidden behind a nearer wall (zbuf is 16.16)
         return screen_x, int(self.sh / ty), ty
 

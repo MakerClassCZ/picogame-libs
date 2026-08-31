@@ -69,3 +69,16 @@ def test_draw_is_view_local_not_screen_local():
     rc.draw(screen2, 0, 0, W, VH)             # RIGHT: band-local (vy - BAND, with vy == BAND)
     right = bytes(bytearray(screen2._data[i] & 0xFF for i in range(len(screen2._data))))
     assert wrong != right                     # the offset genuinely changes the picture
+
+
+def test_project_sprite_edge_column_still_z_tests():
+    """A sprite whose CENTRE column falls off-screen used to skip the z-buffer test entirely
+    and draw through edge walls (round-3 gatecrash finding). The test must clamp to the
+    nearest on-screen column instead."""
+    rc = pr.Raycaster(["11111", "10001", "10101", "10001", "11111"],
+                      {1: (1, 2)}, 3, 4)
+    rc.cast(1.5, 2.5, 0.0, 60, 40)          # looking +x down the corridor
+    # points BEHIND walls whose centre column lands OFF-SCREEN (verified: screen_x -20 and 73;
+    # the old code skipped the z-test for both and returned them as visible)
+    assert rc.project_sprite(3.5, 0.3) is None
+    assert rc.project_sprite(3.5, 4.4) is None
