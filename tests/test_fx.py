@@ -86,3 +86,44 @@ def test_shake_scene_mode_offsets_match_the_applied_view():
     sh.add(1.0)
     sh.tick(10, 20)
     assert s.view == (10 + sh.ox, 20 + sh.oy)       # ox/oy are exactly what set_view got
+
+
+def _sprite():
+    import picogame as pg
+    bm = pg.Bitmap(bytearray(4), 2, 2)
+    return pg.Sprite(bm, 0, 0)
+
+
+def test_flash_lights_for_exactly_the_frames_asked():
+    """The hand-rolled counter renders 2 frames as 1 (spent before the frame it covers);
+    Flash counts DRAWN frames."""
+    s = _sprite()
+    fl = FX.Flash(s)
+    fl.hit(0xF800, 2)
+    lit = 0
+    for _ in range(5):
+        if s.flash:                 # what the compositor would draw this frame
+            lit += 1
+        fl.tick()
+    assert lit == 2
+    assert not s.flash
+
+
+def test_flash_restores_the_effect_it_replaced():
+    """flash shares ONE slot with tint/dither/shadow, so a flashed sprite must come back
+    wearing what it had (a permanently dithered ghost stays a ghost after being hit)."""
+    s = _sprite()
+    s.dither = 6
+    fl = FX.Flash(s)
+    fl.hit(0xFFFF, 1)
+    assert s.flash and not s.dither
+    fl.tick()
+    assert not s.flash and s.dither == 6
+
+
+def test_flash_rearm_extends_but_never_shortens():
+    s = _sprite()
+    fl = FX.Flash(s)
+    fl.hit(0xF800, 3)
+    fl.hit(0xF800, 1)               # a second hit in the same frame must not cut it short
+    assert fl.t == 3

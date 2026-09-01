@@ -4,6 +4,7 @@ pure logic added in A4: `_seq_eq` (the no-alloc list compare) and `_menu_step` (
 import _bootstrap  # noqa: F401
 
 import picogame_ui as UI
+import terminalio
 
 
 def test_seq_eq():
@@ -96,3 +97,35 @@ def test_wrap():
     assert UI.wrap("one two three four", 7, maxlines=2) == ["one two", "three"]   # maxlines cap
     assert UI.wrap(None, 5) == []                                         # None -> no lines
     assert UI.wrap("verylongword", 4) == ["verylongword"]                # over-long word on its own line
+
+
+def test_text_width_is_the_fixed_cell_metric():
+    """Four probe agents hand-computed `len(s) * 6` for every HUD field; make it a function."""
+    assert UI.text_width(terminalio.FONT, "HELLO") == 5 * 6
+    assert UI.text_width(terminalio.FONT, "") == 0
+
+
+def test_centred_pads_without_str_center():
+    """`str.center` needs an EXTRA_FEATURES MicroPython build - it is compiled OUT of
+    CircuitPython, so it works in the CPython sim and raises on device."""
+    assert UI.centred("AB", 8) == "   AB   "
+    assert UI.centred("ABC", 8) == "  ABC   "     # odd remainder -> extra space right
+    assert UI.centred("TOOLONG", 4) == "TOOL"     # never grows past the reserve
+
+
+def test_gridcursor_repeat_is_tunable():
+    """The default auto-repeat suits a menu; a cursor that IS the core verb needs it faster."""
+    seen = []
+
+    class BtnStub:
+        LEFT, RIGHT, UP, DOWN, A, B = (1, 2, 4, 8, 16, 32)
+
+        def just_pressed(self, m):
+            return False
+
+        def repeat(self, m, delay=15, interval=4):
+            seen.append((delay, interval))
+            return False
+
+    UI.GridCursor(4, 4, delay=6, interval=2).tick(BtnStub())
+    assert seen and all(d == 6 and i == 2 for d, i in seen)
