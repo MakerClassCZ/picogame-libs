@@ -55,3 +55,18 @@ def test_stripdraw_invalidate_rejects_partial_rect():
             pass
         else:
             raise AssertionError("partial rect %r must raise ValueError" % (partial,))
+
+
+def test_stripdraw_ignores_scene_view():
+    # Screen-space by design: the C compositor keeps a StripDraw's rows at layer.y
+    # whether or not the layer is fixed - the sim must not scroll it with set_view.
+    scene, d = _scene()
+    rows = []
+    sd = pg.StripDraw(lambda view, vx, vy, vw, vh: rows.append(vy), 0, 60, d.width, 30)
+    scene.add(sd)                             # non-fixed on purpose
+    scene.refresh()
+    first = (min(rows), max(rows))
+    scene.set_view(0, 20)
+    del rows[:]
+    scene.refresh()
+    assert rows and (min(rows), max(rows)) == first, rows
