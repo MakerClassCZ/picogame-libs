@@ -129,3 +129,10 @@ def test_gridcursor_repeat_is_tunable():
 
     UI.GridCursor(4, 4, delay=6, interval=2).tick(BtnStub())
     assert seen and all(d == 6 and i == 2 for d, i in seen)
+
+
+def test_txt_passes_a_str_through_untouched():
+    s = "score 1234"
+    assert UI._txt(s) is s                             # no copy (str(s) allocates in MicroPython)
+    assert UI._txt(None) == ""
+    assert UI._txt(42) == "42"
