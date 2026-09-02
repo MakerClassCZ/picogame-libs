@@ -45,7 +45,9 @@ class Shake:
 
     trauma is squared before use (Eiserloh) so small events barely shake and big ones slam.
     `max_offset` ~6 px suits 320x240 (>10 hides the action). `decay` is trauma lost per frame
-    (~0.03 = 0.9/sec at 30 fps -> a 'kick', not a 'rumble')."""
+    (~0.03 = 0.9/sec at 30 fps -> a 'kick', not a 'rumble'). Amounts: 0.6 = a small kick,
+    0.8 = a hit, 1.0 = a big impact. Below ~0.5 the squared offset is under one pixel at
+    max_offset 6 (0.4 -> 0.96 px), i.e. invisible - it only costs the full repaints."""
 
     def __init__(self, scene, max_offset=6, decay=0.03, seed=0x9E37):
         self.scene = scene                           # None = offset-only mode (StripDraw games)
@@ -64,7 +66,8 @@ class Shake:
         return (self._r % 2001 - 1000) / 1000.0
 
     def add(self, amount):
-        """Add trauma (0..1). e.g. 0.6 = a hit/explosion, 0.15 = a small bump."""
+        """Add trauma (0..1): 0.6 = a small kick, 0.8 = a hit/explosion, 1.0 = a big impact.
+        Under ~0.5 nothing visibly moves (sub-pixel at max_offset 6)."""
         self.trauma = min(1.0, self.trauma + amount)
 
     def tick(self, cam_x=0, cam_y=0):
