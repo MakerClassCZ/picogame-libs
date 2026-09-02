@@ -215,3 +215,28 @@ def test_reserved_band_warning_still_catches_a_dead_layer():
     scene.set_view(-450, -300)                # camera puts it at screen y=0: still dead
     scene.refresh()
     assert _host.take_notes()
+
+
+def test_always_dirty_warning_only_for_scene_layers():
+    # Round-7 finding: the warning fired in StripDraw's constructor, so picogame_ui's IMMEDIATE
+    # widgets (which build a StripDraw purely to carry a pg.render callback and never join a
+    # scene) were accused of a trap they cannot fall into. always_dirty only means anything to
+    # scene.refresh(), so the layer is judged on scene entry.
+    import terminalio
+    import picogame_ui as ui
+    _host.take_notes()
+    d = board.DISPLAY
+    ui.TextBox(pg, terminalio.FONT, 0, 0, d.width, d.height,
+               pg.rgb565(255, 255, 255), pg.rgb565(0, 0, 60))
+    assert not _host.take_notes(), "an immediate widget must not trip the always_dirty warning"
+
+    scene, _ = _scene()
+    scene.add(pg.StripDraw(lambda view, vx, vy, vw, vh: None, 0, 0, d.width, d.height))
+    scene.refresh()
+    assert _host.take_notes(), "a full-screen always_dirty SCENE layer must still be reported"
+
+    scene, _ = _scene()
+    scene.add(pg.StripDraw(lambda view, vx, vy, vw, vh: None, 0, 0, d.width, d.height,
+                           always_dirty=False))
+    scene.refresh()
+    assert not _host.take_notes()
