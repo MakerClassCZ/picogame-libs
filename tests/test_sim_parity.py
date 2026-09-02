@@ -190,6 +190,17 @@ def test_reserved_band_warning_ignores_ordinary_idioms():
     assert not _host.take_notes()
 
 
+def test_reserved_band_warning_ignores_offscreen_layers():
+    # An inset of 0 is not a band: a layer beyond that edge is merely OFF-SCREEN (parked, pooled,
+    # scrolled away), which is normal. Reported on shipped pictor until the check required a real
+    # band AND an on-screen rect.
+    _host.take_notes()
+    scene, d = _banded_scene()                # top=16 only; left/right/bottom are 0
+    scene.add(_sprite(d.width + 300, 100))    # far off the right edge
+    scene.refresh()
+    assert not _host.take_notes()
+
+
 def test_reserved_band_warning_still_catches_a_dead_layer():
     # The warning must survive: a VISIBLE layer whose screen rect is wholly inside the band
     # really never draws, whether it is fixed or scrolled there by the camera.
