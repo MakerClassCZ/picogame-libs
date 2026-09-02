@@ -103,6 +103,17 @@ class Player:
         self._ch_next = [0] * 4
         self._ch_note = [None] * 4
         self._ch_arp = [None] * 4            # (freqs, sub_dur_ns, next_ns, idx) or None
+        # Build the shared waveforms this bank uses NOW (startup): picogame_synth makes
+        # its tables on first use, and a first use from tick() would build one mid-frame.
+        if self._on:
+            used = 0
+            for _speed, _l0, _l1, data in self._sfx.values():
+                for i in range(1, len(data), 3):
+                    if data[i] & 0x0F:                       # volume > 0: the note sounds
+                        used |= 1 << ((data[i] >> 4) & 7)
+            for w in range(8):
+                if used & (1 << w):
+                    self._wave(w)
 
     @property
     def available(self):

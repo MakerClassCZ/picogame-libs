@@ -207,3 +207,19 @@ def test_deadlines_survive_the_ms_clock_wrap():
     p.tick()                                          # row 1 (due at 62.5 ms) - one row per tick
     p.tick()                                          # row 2 is due at 125 ms: nothing
     assert [e[0] for e in s.events] == ["press", "release", "press"]
+
+
+def test_player_builds_the_banks_waveforms_at_construction():
+    """picogame_synth makes its tables on first use; the Player must touch the shapes its
+    bank sounds NOW (startup), never from tick() mid-frame - and only those shapes."""
+    import picogame_synth as snd
+    for name in ("SINE", "SAW", "TRIANGLE", "SQUARE", "NOISE"):
+        vars(snd).pop(name, None)
+    bank = Bank({0: sfx([note(24, wave=3), note(26, wave=6)]),         # square + noise
+                 1: sfx([note(28, wave=1, vol=0)])},                    # silent saw: unused
+                ((0, 1, 0xFF, 0xFF, 0),))
+    make(bank)
+    assert "SQUARE" in vars(snd) and "NOISE" in vars(snd)
+    assert "SAW" not in vars(snd) and "SINE" not in vars(snd) and "TRIANGLE" not in vars(snd)
+    for name in ("SINE", "SAW", "TRIANGLE"):                            # leave every table built
+        getattr(snd, name)
