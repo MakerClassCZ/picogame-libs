@@ -77,8 +77,14 @@ def test_hill_headroom_sizes_the_tables():
     r = make(hill_amp=24)
     assert r.rows == (H - H // 3) + 24
     assert len(r.rl) == r.rows and len(r._hw) == r.rows
+    assert r.horizon_now == r.horizon  # flat until a grade is set
     r.set_grade(1.0)
     assert r._pitch == -24             # downhill lifts the horizon
+    assert r.horizon_now == r.horizon - 24
+    r.set_grade(-0.5)
+    assert r.horizon_now == r.horizon + 12
+    # a plain attribute, not a property: Road.tick's stores must not pay the accessor lookup
+    assert not any(isinstance(v, property) for v in vars(type(r)).values())
 
 
 def test_row_queries_are_consistent():
