@@ -7,6 +7,9 @@ up as a pixel diff. See tests/_recording.py for the shared recorder.
 """
 import _bootstrap  # noqa: F401
 
+import math
+from fractions import Fraction
+
 from _recording import RecordingCanvas, SceneStub, strips_of
 
 import picogame as pg
@@ -113,11 +116,20 @@ def test_fade_rebuilds_on_level_change():
     assert a.bytes() != b.bytes()
 
 
+def _lerp565_exact(a, b, r, den):
+    """Independent oracle: per-channel floor of the EXACT rational lerp (no float, no int tricks)."""
+    ch = []
+    for ca, cb in zip(fx._unwire(a), fx._unwire(b)):
+        ch.append(math.floor(ca + (cb - ca) * Fraction(r, den)))
+    n = (ch[0] << 11) | (ch[1] << 5) | ch[2]
+    return ((n >> 8) | (n << 8)) & 0xFFFF
+
+
 def _sky_reference(s, cv, strips):
     """The original per-scanline LUT fill (full view width), incl. the band's y clip."""
     hh = s.h
     den = hh - 1 if hh > 1 else 1
-    lut = [fx._lerp565(s.top, s.bottom, r / den) for r in range(hh)]
+    lut = [_lerp565_exact(s.top, s.bottom, r, den) for r in range(hh)]
     y0 = s.y
     for (vx, vy, vw, vh) in strips:
         if vy + vh <= y0 or vy >= y0 + hh:        # the engine skips strips outside the layer
