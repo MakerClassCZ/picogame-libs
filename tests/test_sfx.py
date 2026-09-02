@@ -107,6 +107,28 @@ def test_hit_cutoff_rotation():
     assert kit._rot_note.filter.frequency == prev
 
 
+def test_fat_notes_share_envelopes_and_filters():
+    """Kit memoises the fat notes' Envelope by decay and Biquad by cutoff (the Note owns the
+    filter state, so sharing is sound-identical); the rotated hit crack keeps a private one."""
+    s = Spy()
+    kit = picogame_sfx.Kit(s)
+    v = kit._v
+    coin_hi = v["coin"][1][1]
+    zap = v["zap"][0][1]
+    pew = v["pew"][0][1]
+    blip = v["blip"][0][1]
+    assert coin_hi.envelope is zap.envelope             # both decay 0.16
+    assert blip.envelope is pew.envelope                # both decay 0.05
+    assert blip.envelope is not zap.envelope
+    assert v["coin"][0][1].filter is coin_hi.filter     # both cutoff 3400
+    assert blip.filter is v["powerup"][0][1].filter     # both cutoff 3000
+    assert blip.filter is not zap.filter                # 3000 vs 3100
+    fats = [ev[1] for name in ("blip", "coin", "powerup", "zap", "pew", "jump") for ev in v[name]]
+    fats.append(v["hurt"][0][1][1])
+    assert len({id(n.envelope) for n in fats}) == 6 and len({id(n.filter) for n in fats}) == 6
+    assert all(kit._rot_note.filter is not n.filter for n in fats)
+
+
 def test_explosion_is_single_smear_voice():
     kit = picogame_sfx.Kit(Spy())
     xv = kit._v["explosion"][0][1]
