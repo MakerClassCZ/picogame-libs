@@ -5,7 +5,7 @@ import _bootstrap  # noqa: F401
 
 import picogame_music as M
 
-TICK = 7812500                     # 1/128 s in ns
+TICK = 1                           # the clock below counts PICO-8 ticks (1/128 s)
 
 
 def note(pitch, wave=3, vol=5, fx=0):
@@ -59,11 +59,14 @@ class FakeHost:
 
 
 class Clock:
+    """A millisecond clock (the Player's `_now` contract) driven in PICO-8 ticks: `t` counts
+    ticks and the reading is the first whole ms at or past that instant (1 tick = 7.8125 ms),
+    so `t += 8` lands exactly ON a speed-8 row deadline - never one ms short of it."""
     def __init__(self):
         self.t = 0
 
     def __call__(self):
-        return self.t
+        return -(-self.t * 125 // 16)
 
 
 def make(bank):
@@ -148,7 +151,7 @@ def test_arpeggio_mutates_frequency_without_retrigger():
     p.tick()
     presses = sum(1 for e in s.events if e[0] == "press")
     f0 = s.live[0].frequency
-    clk.t += 2 * TICK + 1                             # one arp sub-step (dur/4)
+    clk.t += 2 * TICK                                 # one arp sub-step (dur/4)
     p.tick()
     assert s.live[0].frequency != f0                  # pitch moved...
     assert sum(1 for e in s.events if e[0] == "press") == presses   # ...without a new press
@@ -175,3 +178,32 @@ def test_own_synth_on_music_voice():
     assert host.mixer.voice[0].playing is p._synth
     assert p._synth is not host.synth
     assert p.available
+
+
+def test_waveforms_are_picogame_synths_shared_tables():
+    # Each PICO-8 wave maps to picogame_synth's read-only singleton - never a fresh 512 B
+    # copy per Player (that was the 45 ms first-tick spike). The 25 % pulse has no shared
+    # table, so it is built once per player and then reused.
+    import picogame_synth as ps
+    bank = Bank({1: sfx([note(24)])}, ((1, 0xFF, 0xFF, 0xFF, 0),))
+    p, s, clk = make(bank)
+    assert p._wave(3) is ps.SQUARE and p._wave(0) is ps.TRIANGLE and p._wave(5) is ps.TRIANGLE
+    assert p._wave(1) is ps.SAW and p._wave(2) is ps.SAW and p._wave(6) is ps.NOISE
+    assert p._wave(7) is ps.SINE
+    pulse = p._wave(4)
+    assert pulse is not ps.SQUARE and p._wave(4) is pulse
+
+
+def test_deadlines_survive_the_ms_clock_wrap():
+    # supervisor.ticks_ms wraps at 2**29; a pattern started just before the wrap must keep
+    # its row timing across it (the subtraction is masked, not the absolute clock).
+    bank = Bank({1: sfx([note(24), note(30), note(36)], speed=8)},
+                ((1, 0xFF, 0xFF, 0xFF, 0),))
+    p, s, clk = make(bank)
+    p.play(0)
+    p._t0 = (1 << 29) - 20                            # pattern started 20 ms before the wrap
+    p._now = lambda: ((1 << 29) - 20 + 63) & ((1 << 29) - 1)   # 63 ms later, past the wrap
+    p.tick()                                          # row 0 (due at 0 ms)
+    p.tick()                                          # row 1 (due at 62.5 ms) - one row per tick
+    p.tick()                                          # row 2 is due at 125 ms: nothing
+    assert [e[0] for e in s.events] == ["press", "release", "press"]

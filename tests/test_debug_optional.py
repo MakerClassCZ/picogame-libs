@@ -6,15 +6,18 @@ import sys
 
 def _without_debug():
     """Import picogame_audioout with picogame_debug made unimportable; return the module."""
-    saved = {k: sys.modules.pop(k) for k in list(sys.modules) if k.startswith("picogame_debug")}
-    for k in ("picogame_audioout", "picogame_synth"):
-        sys.modules.pop(k, None)
+    # Save AND restore the audio modules too: other tests hold references bound at their
+    # import (picogame_music._ps), so leaving a fresh picogame_synth in sys.modules would
+    # make identity checks against the "current" module fail later in the run.
+    saved = {k: sys.modules.pop(k) for k in list(sys.modules)
+             if k.startswith(("picogame_debug", "picogame_audioout", "picogame_synth"))}
     sys.modules["picogame_debug"] = None            # None entry -> ImportError on import
     try:
         import picogame_audioout
         return picogame_audioout
     finally:
-        sys.modules.pop("picogame_debug", None)
+        for k in ("picogame_debug", "picogame_audioout", "picogame_synth"):
+            sys.modules.pop(k, None)
         sys.modules.update(saved)
 
 
@@ -25,8 +28,11 @@ def test_audioout_imports_without_debug():
 
 
 def test_debug_present_is_still_used():
-    for k in ("picogame_audioout",):
-        sys.modules.pop(k, None)
-    import picogame_debug
-    import picogame_audioout
-    assert picogame_audioout._debug is picogame_debug.note
+    saved = sys.modules.pop("picogame_audioout", None)
+    try:
+        import picogame_debug
+        import picogame_audioout
+        assert picogame_audioout._debug is picogame_debug.note
+    finally:
+        if saved is not None:
+            sys.modules["picogame_audioout"] = saved
