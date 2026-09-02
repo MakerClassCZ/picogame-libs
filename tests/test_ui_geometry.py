@@ -101,3 +101,62 @@ def test_scenebox_visible_is_assignable_and_overflow_is_flagged():
     assert lit() == shown, "re-showing via the attribute must bring the same panel back"
     box.show(["a", "b"])
     assert not [n for n in _host.take_notes() if "SceneBox.show()" in n], "fits: no note"
+
+
+def _fresh_compose(text, chars):
+    """Oracle: a from-scratch compose of `text` into a blank buffer of `chars` cells."""
+    import picogame_font
+    fw, fh = terminalio.FONT.get_bounding_box()[:2]
+    buf = bytearray(fw * chars * fh)
+    picogame_font.compose_into(terminalio.FONT, text, buf, fw * chars, chars)
+    return buf
+
+
+def test_scenelabel_diff_compose_matches_a_fresh_compose():
+    # set() rewrites only the cells whose character changed - the buffer must still equal a
+    # from-scratch compose after every step, incl. the traps: set("") hides WITHOUT repainting
+    # (the old pixels stay in the buffer), a shorter text must blank the old tail, an over-run
+    # regrows the buffer, reserve() forgets everything.
+    import random
+    scene, d = _scene()
+    label = ui.SceneLabel(scene, pg, terminalio.FONT, 0, 0, pg.rgb565(255, 255, 255))
+    label.reserve(12)
+    for text in ("SCORE 000042", "SCORE 000043", "SCORE 000143", "", "HI", "SCORE 9", "",
+                 "SCORE 000144", "S", "", "LONGER THAN TWELVE", "X", "SCORE 000145"):
+        label.set(text)
+        if text:
+            assert label._buf[:len(_fresh_compose(text, label._chars))] == \
+                _fresh_compose(text, label._chars), repr(text)
+    rng = random.Random(7)
+    alphabet = "ABC 0123456789"
+    for _ in range(200):
+        text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 18)))
+        label.set(text)
+        if text:
+            assert label._buf == _fresh_compose(text, label._chars), repr(text)
+    label.reserve(6)
+    label.set("ABC")
+    assert label._buf == _fresh_compose("ABC", 6)
+
+
+def test_compose_into_skips_unchanged_cells():
+    # The point of the diff: a one-cell change touches one cell's rows, and a blank-padded old
+    # tail is trusted (no rewrite of blank-on-blank).
+    import picogame_font
+    fw, fh = terminalio.FONT.get_bounding_box()[:2]
+    chars = 8
+    buf = bytearray(fw * chars * fh)
+    picogame_font.compose_into(terminalio.FONT, "SCORE 12", buf, fw * chars, chars)
+    poison = bytearray(buf)
+    for i in range(len(poison)):                     # scribble over every cell except cell 7
+        if (i % (fw * chars)) // fw != 7:
+            poison[i] = 0xEE
+    picogame_font.compose_into(terminalio.FONT, "SCORE 13", poison, fw * chars, chars,
+                               old="SCORE 12")
+    fresh = _fresh_compose("SCORE 13", chars)
+    for i in range(len(fresh)):
+        cell = (i % (fw * chars)) // fw
+        if cell == 7:
+            assert poison[i] == fresh[i], "the changed cell is repainted"
+        else:
+            assert poison[i] == 0xEE, "an unchanged cell is left alone (cell %d)" % cell
