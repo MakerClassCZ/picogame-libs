@@ -176,3 +176,65 @@ def test_camera_band_mismatch_is_flagged_by_the_sim():
     FX.Camera(scene, d.width, d.height)                     # forgot the band
     notes = [n for n in _host.take_notes() if "Camera(" in n]
     assert notes and "top=20" in notes[0], notes
+
+
+# ---- Fade.tick: the idle / held frame is an early return, the transitions are unchanged ------
+
+class _Tick:
+    """Drives Fade.tick() and records what it did to the overlay."""
+
+    def __init__(self):
+        self.invalidated = 0
+
+    def add(self, *a, **k):
+        pass
+
+    def invalidate(self, *a, **k):
+        self.invalidated += 1
+
+
+def _fade_levels(f, n):
+    out = []
+    for _ in range(n):
+        done = f.tick()
+        out.append((int(f.level), done))
+    return out
+
+
+def test_fade_transitions_reach_target_and_report_done():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.out(speed=4.0)                                         # 0 -> 16 in four ticks
+    assert _fade_levels(f, 5) == [(4, False), (8, False), (12, False), (16, True), (16, True)]
+    f.into(speed=8.0)
+    assert _fade_levels(f, 3) == [(8, False), (0, True), (0, True)]
+    assert f.sd.width == 0 and f.sd.height == 0              # idle: collapsed, costs nothing
+
+
+def test_fade_pulse_rises_then_falls_back_to_clear():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.pulse(level=8, speed=4.0)
+    levels = [lv for lv, _ in _fade_levels(f, 6)]
+    assert levels == [4, 8, 4, 0, 0, 0]
+    assert f.is_done and f.level == 0
+
+
+def test_fade_held_dim_and_idle_ticks_do_no_work():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.dim(8)
+    assert f.tick() is True and f.level == 8                 # held: the level does not drift
+    for _ in range(10):
+        assert f.tick() is True
+    assert f.level == 8 and f.sd.width == 320                 # still shown
+    f.clear()
+    for _ in range(10):
+        assert f.tick() is True and f.level == 0
+    assert f.sd.width == 0
+
+
+def test_fade_hold_frames_delay_the_ramp():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.set(16)
+    f._hold = 2
+    f.into(speed=8.0)
+    assert _fade_levels(f, 4) == [(16, False), (16, False), (8, False), (0, True)]
+

@@ -293,6 +293,8 @@ class Fade:
         if self._hold > 0:                   # hold at the current level (a flash's "pop")
             self._hold -= 1
             return False
+        if self.level == self.target and self._pulse is None:
+            return True                      # idle or held: nothing moves, nothing to repaint
         if self.level < self.target:
             self.level = min(self.target, self.level + self.speed)
         elif self.level > self.target:
