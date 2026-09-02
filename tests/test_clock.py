@@ -132,3 +132,30 @@ def test_first_capped_tick_primed():
     d0 = clk.tick()
     C._sleep = lambda s: None                    # restore
     assert abs(d0 - 1.0 / 30) < 0.003, "d0=%r" % d0
+
+
+
+def test_asyncio_is_not_imported_until_tick_async():
+    # A plain Clock game must not pay for asyncio: check a FRESH interpreter (this one already
+    # has it loaded through other tests).
+    import subprocess, sys, os
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, %r); import _bootstrap, picogame_clock; "
+         "print('asyncio' in sys.modules, picogame_clock.asyncio)" % here],
+        capture_output=True, text=True, check=True).stdout.split()
+    assert out == ["False", "None"], out
+
+    import asyncio
+
+    async def run():
+        c = C.Clock(1000)
+        _set(0)
+        d0 = await c.tick_async()
+        _set(10)
+        return d0, await c.tick_async()
+
+    d0, d1 = asyncio.run(run())
+    assert d0 >= 0 and d1 >= 0
+    assert C.asyncio is asyncio                       # bound on first use, then reused
