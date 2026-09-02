@@ -49,3 +49,28 @@ def test_scenelabel_position_is_assignable():
     cols = {x for y in rows_after for x in range(d.width) if fb[y * d.width + x]}
     assert min(cols) == 100, "assigning x must move the label"
     assert not any(fb[y * d.width + x] for y in rows_before for x in range(90)), "old rect stale"
+
+
+def test_scenemenu_set_items_reuses_the_layer():
+    # Round-7 finding: a menu whose entry count changes had to be rebuilt, against the module's own
+    # build-once rule. set_items swaps the entries in place - no new scene layer - and resizes,
+    # forcing a full repaint when it shrinks so the vacated rect is erased.
+    import terminalio
+    scene, d = _scene()
+    menu = ui.SceneMenu(scene, pg, terminalio.FONT, 20, 20, ["Go", "Rest"],
+                        pg.rgb565(255, 255, 255), pg.rgb565(0, 0, 60), title="CREW")
+    menu.show()
+    scene.refresh()
+    layers, tall = len(scene._items), menu.panel.h
+
+    menu.set_items(["Go", "Rest", "Upgrade", "Hire", "Sell"])
+    scene.refresh()
+    assert len(scene._items) == layers, "set_items must not add a scene layer"
+    assert menu.panel.h > tall, "the panel must grow with the list"
+    assert menu.tick is not None and len(menu.items) == 5
+
+    lit_before = sum(1 for px in _host.fb if px)
+    menu.set_items(["Go"])
+    scene.refresh()
+    assert menu.panel.h < tall + 1
+    assert sum(1 for px in _host.fb if px) < lit_before, "a shrink must erase the vacated rect"
