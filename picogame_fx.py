@@ -389,18 +389,34 @@ class Camera:
         self.w = w
         self.h = h
         self.lerp = lerp
-        self.world_w = world_w
-        self.world_h = world_h
         # the visible play rect (screen coords) - the reserved bands never show the world
         self._vx = left
         self._vy = top
         self._vw = w - left - right
         self._vh = h - top - bottom
-        self.cx = self._vx + self._vw / 2.0         # camera centre, world coords (start: offset 0)
-        self.cy = self._vy + self._vh / 2.0
+        self._hx = self._vx + self._vw / 2.0        # view centre: offset = centre - camera
+        self._hy = self._vy + self._vh / 2.0
+        self.cx = self._hx                          # camera centre, world coords (start: offset 0)
+        self.cy = self._hy
         self.ox = 0                                 # last computed view offset (ints, alloc-free)
         self.oy = 0
+        self.world_w = world_w                      # 0 = unclamped; may be reassigned (new level)
+        self.world_h = world_h
+        self._bounds()
         _check_band(scene, top, bottom, left, right)
+
+    # The clamp bounds depend only on the play rect and the world size, so they are computed
+    # once per world size, not per frame. Plain attributes, deliberately NOT a property: on
+    # MicroPython a class with any property pays a class lookup on EVERY attribute store
+    # (MP_TYPE_FLAG_HAS_SPECIAL_ACCESSORS), 4 -> 19 us per store on RP2040 - more than the
+    # whole saving. _compute re-derives the bounds when it sees a changed world size instead.
+    def _bounds(self):
+        self._ww = self.world_w
+        self._wh = self.world_h
+        self._xmin = float(self._vx + self._vw - self._ww)
+        self._xmax = float(self._vx)
+        self._ymin = float(self._vy + self._vh - self._wh)
+        self._ymax = float(self._vy)
 
     def follow(self, tx, ty, snap=False):
         if snap:
@@ -413,12 +429,22 @@ class Camera:
     def _compute(self):
         # screen column s shows world column s - ox (set_view semantics), so the visible rect
         # [vx, vx+vw) shows world [vx-ox, vx+vw-ox); clamp keeps that inside [0, world_w).
-        ox = self._vx + self._vw / 2.0 - self.cx
-        oy = self._vy + self._vh / 2.0 - self.cy
-        if self.world_w:                            # clamp so we don't show past the world edge
-            ox = min(float(self._vx), max(float(self._vx + self._vw - self.world_w), ox))
-        if self.world_h:
-            oy = min(float(self._vy), max(float(self._vy + self._vh - self.world_h), oy))
+        ox = self._hx - self.cx
+        oy = self._hy - self.cy
+        ww = self.world_w
+        wh = self.world_h
+        if ww != self._ww or wh != self._wh:        # world resized after construction
+            self._bounds()
+        if ww:                                      # clamp so we don't show past the world edge
+            if ox < self._xmin:                     # (lower bound first: a world narrower than
+                ox = self._xmin                     #  the view pins to the upper bound, as before)
+            if ox > self._xmax:
+                ox = self._xmax
+        if wh:
+            if oy < self._ymin:
+                oy = self._ymin
+            if oy > self._ymax:
+                oy = self._ymax
         self.ox = int(ox)
         self.oy = int(oy)
 

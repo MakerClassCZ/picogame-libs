@@ -238,3 +238,31 @@ def test_fade_hold_frames_delay_the_ramp():
     f.into(speed=8.0)
     assert _fade_levels(f, 4) == [(16, False), (16, False), (8, False), (0, True)]
 
+
+# ---- Camera: the clamp bounds follow a world-size change made after construction -----------
+
+def test_camera_world_size_can_change_after_construction():
+    scene, d = _band_scene()
+    W, H = d.width, d.height
+    cam = FX.Camera(scene, W, H, world_w=2 * W, world_h=2 * H)
+    assert _snap(cam, 5000, 5000) == (-W, -H)
+    cam.world_w = 3 * W                                      # a wider level loaded
+    cam.world_h = 3 * H
+    assert cam.world_w == 3 * W and cam.world_h == 3 * H
+    assert _snap(cam, 5000, 5000) == (-2 * W, -2 * H)
+    cam.world_w = cam.world_h = 0                            # unclamped
+    assert _snap(cam, 5000, 5000) == (W // 2 - 5000, H // 2 - 5000)
+
+
+def test_camera_offset_matches_the_reference_formula():
+    scene, d = _band_scene(top=20, bottom=8)
+    W, H = d.width, d.height
+    cam = FX.Camera(scene, W, H, world_w=900, world_h=700, top=20, bottom=8)
+    vx, vy, vw, vh = 0, 20, W, H - 28
+    for (x, y) in [(0, 0), (100, 50), (450, 350), (899, 699), (2000, -300), (-5, 700)]:
+        ox, oy = _snap(cam, x, y)
+        rx = vx + vw / 2.0 - x
+        ry = vy + vh / 2.0 - y
+        rx = min(float(vx), max(float(vx + vw - 900), rx))
+        ry = min(float(vy), max(float(vy + vh - 700), ry))
+        assert (ox, oy) == (int(rx), int(ry)), (x, y)
