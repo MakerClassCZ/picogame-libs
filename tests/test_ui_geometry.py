@@ -74,3 +74,30 @@ def test_scenemenu_set_items_reuses_the_layer():
     scene.refresh()
     assert menu.panel.h < tall + 1
     assert sum(1 for px in _host.fb if px) < lit_before, "a shrink must erase the vacated rect"
+
+
+def test_scenebox_visible_is_assignable_and_overflow_is_flagged():
+    # Round-9 findings: `box.visible = True` was a silent no-op (the API is show()/hide()), and
+    # show() dropped lines past nlines without a word.
+    scene, d = _scene()
+    fg, bg = pg.rgb565(255, 255, 255), pg.rgb565(0, 0, 80)
+    box = ui.SceneBox(scene, pg, terminalio.FONT, 10, 10, 200, 50, fg, bg, nlines=3)
+    _host.take_notes()
+    box.show(["one", "two", "three", "four"])
+    notes = [n for n in _host.take_notes() if "SceneBox.show()" in n]
+    assert notes and "4 lines" in notes[0] and "nlines=3" in notes[0], notes
+    scene.refresh()
+
+    def lit():
+        return sum(1 for px in _host.fb if px)
+
+    shown = lit()
+    assert shown > 100 and box.visible
+    box.visible = False
+    scene.refresh()
+    assert lit() == 0 and not box.visible, "hiding via the attribute must erase the panel"
+    box.visible = True
+    scene.refresh()
+    assert lit() == shown, "re-showing via the attribute must bring the same panel back"
+    box.show(["a", "b"])
+    assert not [n for n in _host.take_notes() if "SceneBox.show()" in n], "fits: no note"

@@ -31,7 +31,7 @@ class FakeButtons:
 def _view():
     return picogame_scene.load(pg, {
         "bg": 0,
-        "assets": {"t": ("pal8", (bytes([0] * 32 + [1] * 32)).hex(), 8, 8, 2, 0, (0, 0xFFFF))},
+        "assets": {"t": ("pal8", (bytes([0] * 64 + [1] * 64)).hex(), 8, 8, 2, 0, (0, 0xFFFF))},
         "tileprops": {}, "anims": {},
         "layers": [("tilemap", "t", 2, 2, 0, 0, bytes([1, 0, 0, 1]))],
         "camera": None,
@@ -183,3 +183,33 @@ def test_retarget_rebinds_scene_and_keeps_story():
     d.start(s)
     d.tick()
     assert d._box is not old_box   # box rebuilt on the new scene
+
+
+def test_dialogue_stays_above_the_fade_whatever_is_built_first():
+    # Round-9 finding: the box and the fade are lazily added on first use, and insertion order is
+    # z-order. A box built BEFORE the fade sat under it, so text shown during a dim() was mostly
+    # stippled away. _ensure_box now builds the fade first; the test shows text FIRST (the bad
+    # order) and then dims - the text pixel count must not drop.
+    import _host
+    btn = FakeButtons()
+    d, v = _director(btn)
+    fg = 0xFFFF
+
+    def s(d):
+        yield from d.text(["HELLO WORLD", "HELLO WORLD"])
+
+    def lit():                     # fg pixels INSIDE the box rect (the map's white tiles do dim)
+        import board
+        w = board.DISPLAY.width
+        x0, y0, bw, bh = d._boxgeom
+        return sum(1 for y in range(y0, y0 + bh) for x in range(x0, x0 + bw)
+                   if _host.fb[y * w + x] == fg)
+
+    d.start(s)
+    d.tick()                       # box built (and, per the fix, the fade under it)
+    v.scene.refresh()
+    plain = lit()
+    assert plain > 50, "text must render"
+    d._fade.dim(12)
+    v.scene.refresh()
+    assert lit() == plain, "a dim under the box must not eat the dialogue"

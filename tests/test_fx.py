@@ -127,3 +127,52 @@ def test_flash_rearm_extends_but_never_shortens():
     fl.hit(0xF800, 3)
     fl.hit(0xF800, 1)               # a second hit in the same frame must not cut it short
     assert fl.t == 3
+
+
+# ---- Camera + a reserved HUD band (round-9 finding: BAND px lost at both world edges) ---------
+
+def _band_scene(top=0, bottom=0):
+    import board
+    import picogame as pg
+    d = board.DISPLAY
+    return pg.Scene(d, bytearray(d.width * 24 * 2), bytearray(d.width * 24 * 2),
+                    background=0, top=top, bottom=bottom), d
+
+
+def _snap(cam, x, y):
+    return cam.follow(x, y, snap=True).offset()
+
+
+def test_camera_defaults_centre_and_clamp_to_the_screen():
+    scene, d = _band_scene()
+    W, H = d.width, d.height
+    cam = FX.Camera(scene, W, H, world_w=2 * W, world_h=2 * H)
+    assert _snap(cam, W, H) == (-W // 2, -H // 2)          # centred: world (W,H) at screen centre
+    assert _snap(cam, -500, -500) == (0, 0)                # top-left edge
+    assert _snap(cam, 5000, 5000) == (W - 2 * W, H - 2 * H)  # bottom-right edge
+
+
+def test_camera_band_centres_and_clamps_inside_the_visible_rect():
+    BAR = 20
+    scene, d = _band_scene(top=BAR)
+    W, H = d.width, d.height
+    cam = FX.Camera(scene, W, H, world_w=2 * W, world_h=2 * H, top=BAR)
+    vis_h = H - BAR
+    # centre sits in the middle of the VISIBLE part, i.e. BAR px lower than a bandless camera
+    assert _snap(cam, W, H)[1] == BAR + vis_h // 2 - H
+    # top edge: world row 0 lands just under the HUD, not beneath it
+    assert _snap(cam, -500, -500) == (0, BAR)
+    # bottom edge: the last world row reaches the bottom of the screen (the old H+BAR trick
+    # stopped BAR px short of it)
+    assert _snap(cam, 5000, 5000)[1] == H - 2 * H
+
+
+def test_camera_band_mismatch_is_flagged_by_the_sim():
+    import _host
+    scene, d = _band_scene(top=20)
+    _host.take_notes()
+    FX.Camera(scene, d.width, d.height, top=20)
+    assert not [n for n in _host.take_notes() if "Camera(" in n], "matching band: no note"
+    FX.Camera(scene, d.width, d.height)                     # forgot the band
+    notes = [n for n in _host.take_notes() if "Camera(" in n]
+    assert notes and "top=20" in notes[0], notes
