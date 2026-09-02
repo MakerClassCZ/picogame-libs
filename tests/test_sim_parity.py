@@ -155,3 +155,52 @@ def test_strict_dirty_reruns_when_something_below_changes():
         assert len(runs) == quiet, "a genuinely quiet frame must still skip the callback"
     finally:
         pg._set_strict_dirty(False)
+
+
+def _banded_scene():
+    """A scene with a reserved HUD band, as picogame_game.setup(top=16) makes."""
+    d = board.DISPLAY
+    return pg.Scene(d, bytearray(d.width * 24 * 2), bytearray(d.width * 24 * 2),
+                    background=0, top=16), d
+
+
+def _sprite(x, y):
+    return pg.Sprite(pg.Bitmap(b"\x01" * 256, 16, 16, format=pg.PAL8,
+                               palette=(0, 0xFFFF)), x, y)
+
+
+def test_reserved_band_warning_ignores_ordinary_idioms():
+    # Round-6 finding A4 (three agents, five shipped games): the check judged a layer at add()
+    # time in world coordinates, so a pooled/parked sprite, a "construct then place" sprite and
+    # anything in a scrolling world tripped it.
+    _host.take_notes()
+    scene, _ = _banded_scene()
+    parked = _sprite(0, 0)
+    parked.visible = False                    # picogame_pool parks unspawned sprites like this
+    scene.add(parked)
+    placed = scene.add(_sprite(0, 0))
+    placed.x, placed.y = 100, 100             # construct, then place
+    scene.refresh()
+    assert not _host.take_notes()
+
+    scene, _ = _banded_scene()
+    scene.add(_sprite(500, 300))              # far out in a world bigger than the screen...
+    scene.set_view(-450, -250)                # ...but the camera brings it on screen
+    scene.refresh()
+    assert not _host.take_notes()
+
+
+def test_reserved_band_warning_still_catches_a_dead_layer():
+    # The warning must survive: a VISIBLE layer whose screen rect is wholly inside the band
+    # really never draws, whether it is fixed or scrolled there by the camera.
+    _host.take_notes()
+    scene, _ = _banded_scene()
+    scene.add(_sprite(100, 0))                # sits in the top=16 band
+    scene.refresh()
+    assert _host.take_notes(), "a visible layer inside the reserved band must be reported"
+
+    scene, _ = _banded_scene()
+    scene.add(_sprite(500, 300))
+    scene.set_view(-450, -300)                # camera puts it at screen y=0: still dead
+    scene.refresh()
+    assert _host.take_notes()
