@@ -11,6 +11,7 @@ that the C engine defines and games can observe:
 import _bootstrap  # noqa: F401
 
 import board
+import _host
 import picogame as pg
 
 
@@ -70,3 +71,87 @@ def test_stripdraw_ignores_scene_view():
     del rows[:]
     scene.refresh()
     assert rows and (min(rows), max(rows)) == first, rows
+
+
+def _strict_scene():
+    """A --strict-dirty scene: background StripDraw(always_dirty=False) + a sprite over it."""
+    pg._set_strict_dirty(True)
+    scene, d = _scene()
+    return scene, d
+
+
+def test_strict_dirty_does_not_burn_in_a_passing_sprite():
+    # Round-6 finding A1: the restore used to come from the whole previous FRAME, so a sprite that
+    # crossed a clean StripDraw left its imprint burned in for good (seen on shipped squest). The
+    # device re-runs a clean layer whenever an overlapping dirty rect repaints it, so no ghost.
+    scene, d = _strict_scene()
+    try:
+        red = pg.rgb565(255, 0, 0)
+        sky = pg.StripDraw(lambda view, vx, vy, vw, vh:
+                           view.fill_rect(0 - vx, 0 - vy, d.width, 80, pg.rgb565(0, 0, 200)),
+                           0, 0, d.width, 80, always_dirty=False)
+        scene.add(sky)
+        sprite = pg.Sprite(pg.Bitmap(b"\x01" * 256, 16, 16, format=pg.PAL8,
+                                     palette=(0, red)), 40, 30)
+        scene.add(sprite)
+        scene.refresh()
+        sprite.x = 200                      # fly away; the vacated pixels must not keep the sprite
+        scene.refresh()
+        assert _host.fb[38 * d.width + 48] != red
+    finally:
+        pg._set_strict_dirty(False)
+
+
+def test_strict_dirty_still_freezes_a_forgotten_invalidate():
+    # The trap the mode exists for must survive the A1 fix: content changed without invalidate()
+    # keeps showing the OLD content (as the panel does), and invalidate() unfreezes it.
+    scene, d = _strict_scene()
+    try:
+        blue = pg.rgb565(0, 0, 200)
+        colour = [blue]
+        panel = pg.StripDraw(lambda view, vx, vy, vw, vh:
+                             view.fill_rect(0 - vx, 0 - vy, d.width, 80, colour[0]),
+                             0, 0, d.width, 80, always_dirty=False)
+        scene.add(panel)
+        scene.refresh()
+        colour[0] = pg.rgb565(0, 200, 0)    # changed, but nobody called invalidate()
+        scene.refresh()
+        assert _host.fb[10 * d.width + 10] == blue, "a forgotten invalidate() must still freeze"
+        panel.invalidate()
+        scene.refresh()
+        assert _host.fb[10 * d.width + 10] != blue
+    finally:
+        pg._set_strict_dirty(False)
+
+
+def test_strict_dirty_reruns_when_something_below_changes():
+    # The device rule (Scene.c: a clean StripDraw "still re-runs when another layer's dirty rect
+    # overlaps it"): a tilemap edit UNDER the layer must reach the screen, not be restored away.
+    scene, d = _strict_scene()
+    try:
+        runs = []
+
+        def draw(view, vx, vy, vw, vh):     # paints only the BOTTOM strip of its own rect
+            runs.append(vy)
+            view.fill_rect(0 - vx, 40 - vy, d.width, 20, pg.rgb565(0, 0, 200))
+
+        overlay = pg.StripDraw(draw, 0, 0, d.width, 80, always_dirty=False)
+        atlas = bytes(([1] * 8 + [2] * 8) * 8)          # per-row atlas: frame0 | frame1
+        tiles = pg.Bitmap(atlas, 8, 8, format=pg.PAL8, frames=2,
+                          palette=(0, pg.rgb565(80, 80, 80), pg.rgb565(200, 200, 0)))
+        tilemap = pg.Tilemap(tiles, 8, 4)
+        tilemap.fill(0)
+        scene.add(tilemap)
+        scene.add(overlay)                              # overlay sits ON TOP of the map
+        scene.refresh()
+        scene.refresh()
+        before, pixel = len(runs), _host.fb[8 * d.width + 8]
+        tilemap.set_tile(1, 1, 1)                       # a change UNDER the clean overlay
+        scene.refresh()
+        assert len(runs) > before, "the callback must re-run when its rect is dirtied from below"
+        assert _host.fb[8 * d.width + 8] != pixel, "the change below must reach the screen"
+        quiet = len(runs)
+        scene.refresh()
+        assert len(runs) == quiet, "a genuinely quiet frame must still skip the callback"
+    finally:
+        pg._set_strict_dirty(False)
