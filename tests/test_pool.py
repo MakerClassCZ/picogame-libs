@@ -179,3 +179,19 @@ def test_spawn_restores_baseline_look():
     assert b is a                           # same slot back
     assert not b.flash                      # runtime effect cleared
     assert b.scale == 2.0                   # configured baseline preserved
+
+
+def test_count_always_equals_the_alive_bits():
+    # The O(1) counter must never drift from the per-slot bits, whatever the caller does -
+    # including freeing the same sprite twice and freeing after a full sweep.
+    p = make(capacity=4)
+    a, b, c, d = p.spawn(), p.spawn(), p.spawn(), p.spawn()
+    assert p.spawn() is None and p.count() == 4 == sum(p.alive)
+    p.free(b)
+    p.free(b)                                   # double free: still exactly one slot back
+    assert p.count() == 3 == sum(p.alive)
+    assert p.spawn() is b and p.count() == 4 == sum(p.alive)
+    p.free_all()
+    p.free(a)                                   # free after free_all: still zero
+    assert p.count() == 0 == sum(p.alive)
+    assert p.spawn() is a and p.count() == 1 == sum(p.alive)
