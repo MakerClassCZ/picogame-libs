@@ -185,31 +185,81 @@ def test_retarget_rebinds_scene_and_keeps_story():
     assert d._box is not old_box   # box rebuilt on the new scene
 
 
+def _lit_in_box(d):
+    # fg pixels INSIDE the box rect (the map's white tiles outside it do dim)
+    import _host
+    import board
+    w = board.DISPLAY.width
+    x0, y0, bw, bh = d._boxgeom
+    return sum(1 for y in range(y0, y0 + bh) for x in range(x0, x0 + bw)
+               if _host.fb[y * w + x] == 0xFFFF)
+
+
 def test_dialogue_stays_above_the_fade_whatever_is_built_first():
     # Round-9 finding: the box and the fade are lazily added on first use, and insertion order is
     # z-order. A box built BEFORE the fade sat under it, so text shown during a dim() was mostly
-    # stippled away. _ensure_box now builds the fade first; the test shows text FIRST (the bad
-    # order) and then dims - the text pixel count must not drop.
-    import _host
+    # stippled away. The test shows text FIRST (the bad order), then asks for the fade and dims -
+    # the fade must lift the box back on top, so the text pixel count must not drop.
     btn = FakeButtons()
     d, v = _director(btn)
-    fg = 0xFFFF
 
     def s(d):
         yield from d.text(["HELLO WORLD", "HELLO WORLD"])
 
-    def lit():                     # fg pixels INSIDE the box rect (the map's white tiles do dim)
-        import board
-        w = board.DISPLAY.width
-        x0, y0, bw, bh = d._boxgeom
-        return sum(1 for y in range(y0, y0 + bh) for x in range(x0, x0 + bw)
-                   if _host.fb[y * w + x] == fg)
+    d.start(s)
+    d.tick()                       # box built; no fade yet
+    v.scene.refresh()
+    plain = _lit_in_box(d)
+    assert plain > 50, "text must render"
+    d._ensure_fade().dim(12)       # the fade arrives AFTER the box -> box lifted above it
+    v.scene.refresh()
+    assert _lit_in_box(d) == plain, "a dim under the box must not eat the dialogue"
+    assert v.scene._items.index(d._box._sd) > v.scene._items.index(d._fade.sd)
+
+
+def test_text_only_director_never_builds_the_fade():
+    # A story that only talks must not pay for picogame_fx + a Fade (~1.5 KB, plus the module if
+    # nothing else imported it) at its first dialogue - mid-game, on a fragmented heap. Both
+    # parts are lazy on their OWN first use; z-order is fixed up by _ensure_fade instead.
+    import sys
+    btn = FakeButtons()
+    d, v = _director(btn)
+
+    def s(d):
+        yield from d.text(["Gatekeeper:", "Go on through."])
+        yield from d.ask(["Really?"])
+
+    had_fx = "picogame_fx" in sys.modules
+    sys.modules.pop("picogame_fx", None)
+    try:
+        d.start(s)
+        for _ in range(3):
+            d.tick()
+        assert d._box is not None and d._fade is None
+        assert "picogame_fx" not in sys.modules, "text() must not import picogame_fx"
+    finally:
+        if had_fx:
+            import picogame_fx  # noqa: F401  (restore for the other tests)
+
+
+def test_fade_first_then_text_keeps_the_box_on_top_without_a_lift():
+    # The other order (fade, then a first dialogue) needs no fix-up: the box is simply added later.
+    btn = FakeButtons()
+    d, v = _director(btn)
+
+    def s(d):
+        yield from d.fade_out(speed=16.0)
+        yield from d.fade_in(speed=16.0)
+        yield from d.text(["HELLO WORLD", "HELLO WORLD"])
 
     d.start(s)
-    d.tick()                       # box built (and, per the fix, the fade under it)
+    for _ in range(12):
+        d.tick()
+    assert d._fade is not None and d._box is not None
     v.scene.refresh()
-    plain = lit()
-    assert plain > 50, "text must render"
+    plain = _lit_in_box(d)
+    assert plain > 50
     d._fade.dim(12)
     v.scene.refresh()
-    assert lit() == plain, "a dim under the box must not eat the dialogue"
+    assert _lit_in_box(d) == plain
+    assert v.scene._items.index(d._box._sd) > v.scene._items.index(d._fade.sd)

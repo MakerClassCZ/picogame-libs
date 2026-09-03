@@ -136,3 +136,19 @@ def test_txt_passes_a_str_through_untouched():
     assert UI._txt(s) is s                             # no copy (str(s) allocates in MicroPython)
     assert UI._txt(None) == ""
     assert UI._txt(42) == "42"
+
+
+def test_scenebox_lift_moves_its_layer_to_the_top():
+    # Layer order is draw order: a layer added AFTER the box (a Fade, an overlay) covers it.
+    # lift() re-adds the box's own StripDraw on top - same object, no rebuild - so the dialogue
+    # is drawn last again.
+    import picogame as pg
+    import board
+    scene = pg.Scene(board.DISPLAY, bytearray(320 * 8 * 2), None)
+    box = UI.SceneBox(scene, pg, terminalio.FONT, 4, 180, 312, 50, 0xFFFF, 0)
+    later = scene.add(pg.StripDraw(lambda *a: None, 0, 0, 320, 240), fixed=True)
+    layer = box._sd
+    assert scene._items.index(layer) < scene._items.index(later)
+    assert box.lift() is box
+    assert scene._items.index(layer) > scene._items.index(later)
+    assert box._sd is layer and len(scene._items) == 2
