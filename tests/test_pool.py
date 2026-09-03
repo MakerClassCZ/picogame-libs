@@ -213,3 +213,24 @@ def test_count_always_equals_the_alive_bits():
     p.free(a)                                   # free after free_all: still zero
     assert p.count() == 0 == sum(p.alive)
     assert p.spawn() is a and p.count() == 1 == sum(p.alive)
+
+
+def test_baseline_storage_is_built_at_construction_and_never_reallocated():
+    """The first spawn() of a game (the first shot) must not allocate: the snapshot list is sized
+    at construction on the clean start-up heap - one flat list, 9 fields per slot, no per-slot
+    tuples - and baseline() only writes into it, at the first spawn and on every re-snapshot."""
+    p = make(64)
+    store = p._base
+    assert len(store) == 9 * 64 and not p._snapped
+    for s in p.items:
+        s.flip_y = True
+    a = p.spawn()
+    assert p._snapped and p._base is store           # filled in place, same list object
+    assert store[8] is True                          # slot 0: flip_y is the 9th field
+    p.free(a)
+    a.scale = 3.0
+    p.baseline()
+    assert p._base is store and store[4] == 3.0      # re-snapshot writes in place too
+    a.flash = 0xF800
+    p.free(a)
+    assert p.spawn().scale == 3.0 and not a.flash
