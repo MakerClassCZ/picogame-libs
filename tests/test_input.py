@@ -33,18 +33,6 @@ def test_is_pressed_mask():
     assert b.is_pressed()                             # default ALL -> any button
 
 
-def test_just_pressed_released_edges():
-    b = _btns()
-    b.prev = I.UP                                     # UP was down last frame
-    b.state = I.UP | I.A                              # A newly pressed, UP still held
-    assert b.just_pressed(I.A)                        # rising edge
-    assert not b.just_pressed(I.UP)                   # held, not an edge
-    b.prev = I.UP | I.A
-    b.state = I.UP                                    # A released this frame
-    assert b.just_released(I.A)
-    assert not b.just_released(I.UP)
-
-
 class _Src:
     """A button source (.read() -> mask) the test drives frame by frame."""
     mapped = I.ALL
@@ -54,6 +42,27 @@ class _Src:
 
     def read(self):
         return self.mask
+
+
+def test_just_pressed_released_edges():
+    # Edges are decided in poll() (once per frame), the queries only mask them - so drive the
+    # frames through a source and poll(), the way a game does.
+    b = I.Buttons(sources=[src := _Src()])
+    src.mask = I.UP                                   # UP goes down
+    b.poll()
+    src.mask = I.UP | I.A                             # A newly pressed, UP still held
+    b.poll()
+    assert b.just_pressed(I.A)                        # rising edge
+    assert not b.just_pressed(I.UP)                   # held, not an edge
+    assert b.just_pressed(I.A) and b.just_pressed()   # stable within the frame; default = any
+    assert not b.just_released()
+    src.mask = I.UP                                   # A released this frame
+    b.poll()
+    assert b.just_released(I.A)
+    assert not b.just_released(I.UP)
+    assert not b.just_pressed()
+    b.poll()                                          # idle frame: no edges at all
+    assert not b.just_pressed() and not b.just_released()
 
 
 def _held_frames(b, src, mask, frames, delay=15, interval=4):
