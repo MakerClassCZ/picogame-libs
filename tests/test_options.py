@@ -3,6 +3,8 @@
 render is needed."""
 import _bootstrap  # noqa: F401
 
+import terminalio
+
 import picogame_options as OPT
 
 
@@ -12,7 +14,7 @@ class FakeScene:
 
 
 class FakePg:
-    """Only what SceneBox touches at construction."""
+    """Only what SceneBox touches at construction (plus a real font: it sizes its columns from it)."""
 
     class StripDraw:
         def __init__(self, cb, x, y, w, h, **kw):
@@ -27,7 +29,7 @@ class FakePg:
 
 
 def _menu(rows, visible=None, title=None):
-    return OPT.OptionsMenu(FakeScene(), FakePg(), None, 0, 0, 120, rows, 1, 0,
+    return OPT.OptionsMenu(FakeScene(), FakePg(), terminalio.FONT, 0, 0, 120, rows, 1, 0,
                            title=title, visible=visible)
 
 

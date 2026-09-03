@@ -100,7 +100,14 @@ def test_scenebox_visible_is_assignable_and_overflow_is_flagged():
     scene.refresh()
     assert lit() == shown, "re-showing via the attribute must bring the same panel back"
     box.show(["a", "b"])
-    assert not [n for n in _host.take_notes() if "SceneBox.show()" in n], "fits: no note"
+    assert not [n for n in _host.take_notes() if "SceneBox" in n], "fits: no note"
+    # A line wider than the panel is not clipped - the sim says so (w=200 -> (200-16)//6 = 30 chars).
+    assert box._cols == 30
+    box.show(["x" * 30])
+    assert not [n for n in _host.take_notes() if "SceneBox line" in n], "30 chars fit exactly"
+    box.set_line(1, "y" * 31)
+    notes = [n for n in _host.take_notes() if "SceneBox line" in n]
+    assert notes and "31 chars" in notes[0] and "fits 30" in notes[0], notes
 
 
 def _fresh_compose(text, chars):

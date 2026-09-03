@@ -266,3 +266,20 @@ def test_camera_offset_matches_the_reference_formula():
         rx = min(float(vx), max(float(vx + vw - 900), rx))
         ry = min(float(vy), max(float(vy + vh - 700), ry))
         assert (ox, oy) == (int(rx), int(ry)), (x, y)
+
+
+def test_camera_apply_with_shake_composes_one_set_view():
+    """apply(shaker) = the camera offset plus the shake offset, applied ONCE - no tuple,
+    no second set_view fighting the first (the old recipe was shake.tick(*cam.offset()))."""
+    scene = FakeScene()
+    cam = FX.Camera(scene, 320, 240, world_w=1000, world_h=1000)
+    sh = FX.Shake(scene, max_offset=6)
+    cam.follow(500, 500, snap=True).apply(sh)           # idle shake: view == camera
+    assert scene.view == (cam.ox, cam.oy) and scene.calls == 1
+    sh.add(1.0)
+    cam.apply(sh)
+    assert scene.calls == 2
+    assert scene.view == (cam.ox + sh.ox, cam.oy + sh.oy)
+    assert abs(sh.ox) <= 6 and abs(sh.oy) <= 6
+    cam.apply()                                          # no shake: plain camera
+    assert scene.view == (cam.ox, cam.oy) and scene.calls == 3
