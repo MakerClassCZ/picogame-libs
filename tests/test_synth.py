@@ -57,3 +57,31 @@ def test_audio_less_build_resolves_tables_to_none():
         for name in TABLES:                                # rebuild for the other test modules
             _forget(name)
             assert getattr(snd, name) is not None, name
+
+
+def test_drone_default_waveform_resolves_the_lazy_saw():
+    """Drone(synth) without waveform= must build/reach SAW itself: a bare `SAW` global inside
+    the module is NOT routed through the module __getattr__, so it raised NameError until the
+    caller happened to touch snd.SAW first."""
+    _forget("SAW")
+
+    class _Synth:
+        def press(self, note): pass
+        def release(self, note): pass
+
+    drone = snd.Drone(_Synth())
+    assert "SAW" in vars(snd)                              # the default build went through the lazy path
+    if snd.AVAILABLE:
+        assert drone.note.waveform is snd.SAW
+
+
+def test_star_import_binds_the_lazy_tables():
+    for name in TABLES:
+        _forget(name)
+    ns = {}
+    exec("from picogame_synth import *", ns)
+    for name in TABLES:
+        assert name in ns and ns[name] is getattr(snd, name), name
+    assert "Synth" in ns and "Drone" in ns and "RAMP" in ns
+    for name in snd.__all__:                               # every advertised name really resolves
+        getattr(snd, name)
