@@ -143,6 +143,63 @@ def test_loop_flags_return_to_loop_start():
     assert seen == {0, 1}                             # cycles 0 -> 1 -> 0, never stops
 
 
+OFF = (0xFF, 0xFF, 0xFF, 0xFF)                        # a row with every channel off
+
+
+def _run(p, clk, frames):
+    for _ in range(frames):
+        p.tick()
+        clk.t += TICK
+
+
+def test_silent_row_with_stop_flag_ends_the_song():
+    bank = Bank({1: sfx([note(24)] * 32, speed=1)},
+                ((1, 0xFF, 0xFF, 0xFF, 0),
+                 OFF + (4,)))                        # PICO-8 style trailer: nothing + stop
+    p, s, clk = make(bank)
+    p.play(0)
+    _run(p, clk, 40)
+    assert not p._playing and len(s.live) == 0       # ended, not wedged on the empty row
+    n = len(s.events)
+    _run(p, clk, 10)
+    assert len(s.events) == n
+
+
+def test_silent_row_with_loop_end_returns_to_loop_start():
+    bank = Bank({1: sfx([note(24)] * 32, speed=1)},
+                ((1, 0xFF, 0xFF, 0xFF, 1),           # loop start
+                 OFF + (2,)))                        # loop end on an empty row
+    p, s, clk = make(bank)
+    p.play(0)
+    _run(p, clk, 80)
+    assert p._playing and p._pattern == 0            # the empty row fell straight through
+    assert [e for e in s.events if e[0] == "press"][2:]     # ... and the sfx restarted
+
+
+def test_silent_row_in_the_middle_is_skipped():
+    bank = Bank({1: sfx([note(24)] * 32, speed=1), 2: sfx([note(30)] * 32, speed=1)},
+                ((1, 0xFF, 0xFF, 0xFF, 0),
+                 OFF + (0,),                         # a gap (or an sfx the bank lacks)
+                 (2, 0xFF, 0xFF, 0xFF, 4)))
+    p, s, clk = make(bank)
+    p.play(0)
+    seen = set()
+    for _ in range(70):
+        p.tick()
+        seen.add(p._pattern)
+        clk.t += TICK
+    assert seen == {0, 2} and not p._playing         # 0 -> (1 skipped) -> 2 -> stop
+
+
+def test_bank_of_silent_rows_stops_instead_of_looping_forever():
+    bank = Bank({}, (OFF + (1,), OFF + (2,)))        # every reachable row is empty
+    p, s, clk = make(bank)
+    p.play(0)
+    assert not p._playing
+    _run(p, clk, 5)
+    assert s.events == []
+
+
 def test_arpeggio_mutates_frequency_without_retrigger():
     notes = [note(24, fx=6), note(28), note(31), note(36)]
     bank = Bank({1: sfx(notes, speed=8)}, ((1, 0xFF, 0xFF, 0xFF, 0),))
