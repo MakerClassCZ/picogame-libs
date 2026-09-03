@@ -85,3 +85,66 @@ def test_star_import_binds_the_lazy_tables():
     assert "Synth" in ns and "Drone" in ns and "RAMP" in ns
     for name in snd.__all__:                               # every advertised name really resolves
         getattr(snd, name)
+
+
+def test_deinit_releases_output_mixer_and_synth_once_and_goes_silent():
+    """The twin of picogame_audio.Audio.deinit(): the output (PWM pin / I2S bus) is what a
+    second Synth() or Audio() in the same program needs back. Output first (it plays the
+    mixer), then the mixer, then the synthesizer; a second deinit() touches nothing; after
+    it the instance is the silent no-op, so a game's sfx()/music() calls stay call-safe."""
+    if not snd.AVAILABLE:
+        s = snd.Synth()
+        s.deinit()
+        assert s.available is False
+        return
+    s = snd.Synth()
+    assert s.available, "the sim's PWM shim must yield a working Synth"
+    calls = []
+
+    class _Dev:
+        def __init__(self, name):
+            self.name = name
+
+        def deinit(self):
+            calls.append(self.name)
+
+        def play(self, *a, **k):
+            pass
+
+        def stop(self, *a, **k):
+            pass
+
+    s.audio, s.mixer, s.synth = _Dev("out"), _Dev("mixer"), _Dev("synth")
+    s._seq = [(0, None)]
+    s.deinit()
+    assert calls == ["out", "mixer", "synth"]
+    assert s.available is False and s._seq is None and s._last_sfx is None
+    assert isinstance(s.audio, snd._Null) and isinstance(s.mixer, snd._Null)
+    s.deinit()                                  # idempotent: the fakes are gone, nothing to call
+    assert calls == ["out", "mixer", "synth"]
+    assert s.sfx(snd.note(60)) is False         # a deinit'd Synth is the no-op: dropped, call-safe
+    s.music(snd.load_midi)                      # any object: the _Null voice takes it
+    s.stop_music()
+    s.mute(True)
+
+
+def test_deinit_on_a_failed_init_synth_is_a_no_op():
+    """A Synth that degraded at construction (tight heap / pin in use) owns nothing; deinit()
+    must not touch the _Null stand-ins or flip any state."""
+    if not snd.AVAILABLE:
+        return
+    import picogame_audioout
+
+    real = picogame_audioout.make_output
+
+    def boom(*a, **k):
+        raise RuntimeError("no audio output")
+
+    picogame_audioout.make_output = boom
+    try:
+        s = snd.Synth()
+    finally:
+        picogame_audioout.make_output = real
+    assert s.available is False
+    s.deinit()
+    assert s.available is False and isinstance(s.audio, snd._Null)
