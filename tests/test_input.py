@@ -188,3 +188,104 @@ def test_sources_mapped_union_and_or():
     a._m = I.A; b._m = I.LEFT
     p.poll()
     assert p.is_pressed(I.A) and p.is_pressed(I.LEFT)      # a player CAN still combine >1 device
+
+
+# --- deinit(): release the pins Buttons OWNS, only DROP the sources it merely reads ---
+class _RecIO:
+    """A digitalio.DigitalInOut stand-in that records its deinit() calls."""
+    made = []
+
+    def __init__(self, pin):
+        self._pin = pin
+        self.deinits = 0
+        _RecIO.made.append(self)
+
+    def switch_to_input(self, pull=None):
+        pass
+
+    def deinit(self):
+        self.deinits += 1
+
+    @property
+    def value(self):
+        return True                                   # active-low idle = nothing pressed
+
+
+class _ForeignSource(FakeSource):
+    """A source that would blow up if Buttons ever deinit'd it - it belongs to its owner."""
+    def deinit(self):
+        raise AssertionError("Buttons must not deinit a source it does not own")
+
+
+def test_deinit_releases_polling_pins_once_and_drops_sources_untouched():
+    real = I.digitalio.DigitalInOut
+    I.digitalio.DigitalInOut = _RecIO
+    _RecIO.made.clear()
+    try:
+        b = I.Buttons(profile=((object(), I.A), (object(), I.B)), prefer_keypad=False, usb=False)
+    finally:
+        I.digitalio.DigitalInOut = real
+    assert len(_RecIO.made) == 2 and b._pairs
+    src = _ForeignSource()
+    b.attach(src)
+    b.deinit()
+    assert [io.deinits for io in _RecIO.made] == [1, 1]    # the pins it owns are released
+    assert b._sources == [] and b._pairs == []              # the foreign source is only dropped
+    assert b.poll() == 0 and not b.just_pressed()           # a stray poll on a dead player is harmless
+    b.deinit()                                               # idempotent: nothing released twice
+    assert [io.deinits for io in _RecIO.made] == [1, 1]
+
+
+class _FakeKeys:
+    """keypad.Keys / KeyMatrix stand-in: an empty event queue + a recorded deinit()."""
+    class _Q:
+        def get_into(self, ev):
+            return False
+
+        def clear(self):
+            pass
+
+    def __init__(self, *a, **kw):
+        self.events = _FakeKeys._Q()
+        self.deinits = 0
+
+    def deinit(self):
+        self.deinits += 1
+
+
+def test_deinit_releases_the_keypad_scanner():
+    import sys
+    import types
+    fake = types.ModuleType("keypad")
+    fake.Keys = _FakeKeys
+    fake.Event = lambda: None
+    saved = sys.modules.get("keypad")
+    sys.modules["keypad"] = fake
+    real = I.digitalio.DigitalInOut
+    I.digitalio.DigitalInOut = _RecIO                        # would be the fallback; must stay unused
+    _RecIO.made.clear()
+    try:
+        b = I.Buttons(profile=((object(), I.A),), prefer_keypad=True, usb=False)
+    finally:
+        I.digitalio.DigitalInOut = real
+        if saved is None:
+            del sys.modules["keypad"]
+        else:
+            sys.modules["keypad"] = saved
+    keys = b._keys
+    assert isinstance(keys, _FakeKeys) and not _RecIO.made
+    b.deinit()
+    assert keys.deinits == 1 and b._keys is None
+    assert b.poll() == 0                                     # falls through to the empty polling branch
+    b.deinit()
+    assert keys.deinits == 1
+
+
+def test_deinit_on_a_sources_only_player_just_drops_the_sources():
+    src = _ForeignSource()
+    p = I.Buttons(sources=[src])
+    src._m = I.A
+    p.poll()
+    assert p.is_pressed(I.A)
+    p.deinit()                                               # no _ios on this path: must not raise
+    assert p._sources == [] and p.poll() == 0 and not p.is_pressed(I.A)
