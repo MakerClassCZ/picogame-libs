@@ -239,6 +239,32 @@ def test_fade_hold_frames_delay_the_ramp():
     assert _fade_levels(f, 4) == [(16, False), (16, False), (8, False), (0, True)]
 
 
+def test_fade_into_cancelling_an_unstarted_out_collapses_the_overlay():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.out()                                                  # armed, never ticked: level still 0
+    f.into()                                                 # cancelled before it moved
+    assert not f._active and f.sd.width == 0                 # nothing to fade -> nothing shown
+    assert f.tick() is True and f.sd.width == 0
+    f.out(speed=4.0)                                         # a later fade still works
+    f.tick()
+    assert f._active and f.sd.width == 320
+
+
+def test_fade_target_after_pulse_drops_the_stale_peak():
+    f = FX.Fade(_Tick(), 320, 240)
+    f.pulse(level=12, speed=2.0)
+    f.tick()                                                 # 2 of 12 on the way up
+    f.to(8)                                                  # interrupted by a plain ramp
+    assert f._pulse is None
+    assert [lv for lv, _ in _fade_levels(f, 4)] == [4, 6, 8, 8]    # holds at 8, never reverses
+    f.pulse(level=12, speed=2.0)
+    f.out(speed=4.0)                                         # ... and by a full fade-out
+    assert [lv for lv, _ in _fade_levels(f, 3)] == [12, 16, 16]
+    f.pulse(level=12, speed=2.0)
+    f.set(4)                                                 # ... and by a hard set
+    assert f._pulse is None and f.tick() is True and f.level == 4
+
+
 # ---- Camera: the clamp bounds follow a world-size change made after construction -----------
 
 def test_camera_world_size_can_change_after_construction():
