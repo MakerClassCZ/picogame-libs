@@ -167,3 +167,36 @@ def test_compose_into_skips_unchanged_cells():
             assert poison[i] == fresh[i], "the changed cell is repainted"
         else:
             assert poison[i] == 0xEE, "an unchanged cell is left alone (cell %d)" % cell
+
+
+def test_immediate_label_draw_keeps_its_footprint_tuple_while_unchanged():
+    # The documented HUD idiom calls label.draw() EVERY frame (the screen under it is repainted);
+    # with unchanged text/position that must not leave a new footprint tuple behind each frame.
+    # A real change (text width, move, hide) still records the new rectangle - and the old one is
+    # erased, which the union in draw() relies on.
+    import picogame_font
+    d = board.DISPLAY
+    buf = bytearray(d.width * 8 * 2)
+    fg, bg = pg.rgb565(255, 255, 255), pg.rgb565(0, 0, 60)
+    label = picogame_font.Label(pg, terminalio.FONT, 10, 10, fg, bg)
+    label.set("SCORE 000100")
+    label.draw(d, buf)
+    first = label._drawn
+    assert first == (10, 10, 10 + label.w, 10 + label.h)
+    for _ in range(5):
+        label.set("SCORE 000100")            # unchanged -> set() skips, draw() repaints
+        label.draw(d, buf)
+        assert label._drawn is first         # the SAME tuple: no per-frame allocation
+    label.set("SCORE 1")                     # narrower: the footprint shrinks
+    label.draw(d, buf)
+    assert label._drawn is not first and label._drawn[2] < first[2]
+    fb = _host.fb
+    assert not any(fb[y * d.width + x] == fg for y in range(10, 10 + label.h)
+                   for x in range(label._drawn[2] + 1, first[2])), "old wider text erased"
+    label.move(20, 10)
+    label.set("SCORE 1")                     # move() forces the re-render at the new spot
+    label.draw(d, buf)
+    assert label._drawn[0] == 20
+    label.set("")                            # hidden: footprint dropped, rect erased
+    label.draw(d, buf)
+    assert label._drawn is None
