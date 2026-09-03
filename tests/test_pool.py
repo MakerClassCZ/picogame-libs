@@ -165,20 +165,38 @@ def test_every_slot_is_added_to_the_scene_hidden():
 
 def test_spawn_restores_baseline_look():
     """A recycled slot must not wear the previous user's blit effect (a hit-flash that means
-    'lethal' in one game came back on a harmless entity) - but a pool configured at build time
-    (squest_full scales its pooled sprites) must KEEP that configuration."""
+    'lethal' in one game came back on a harmless entity) - but a pool configured right after
+    construction (squest scales its pooled sprites, picowing flips its raiders) must KEEP that
+    configuration WITHOUT an extra call: the baseline is what the sprites look like at the
+    first spawn(). (A build-time snapshot undid both games' set-up - the raiders came back
+    pointing up.)"""
     p = make(2)
-    for s in p.items:                       # build-time configuration ...
+    for s in p.items:                       # set-up after construction ...
         s.scale = 2.0
-    p.baseline()                            # ... becomes the baseline
-    a = p.spawn()
+        s.flip_y = True
+    a = p.spawn()                           # ... is the baseline: snapped here
+    assert a.scale == 2.0 and a.flip_y is True
     a.flash = 0xF800                        # runtime effect during its life
     a.scale = 3.0
     p.free(a)
     b = p.spawn()
     assert b is a                           # same slot back
     assert not b.flash                      # runtime effect cleared
-    assert b.scale == 2.0                   # configured baseline preserved
+    assert b.scale == 2.0 and b.flip_y is True   # configured baseline preserved
+
+
+def test_baseline_resnapshots_a_later_reconfiguration():
+    """Reconfiguring the sprites mid-game (a level with bigger rocks) is kept only after an
+    explicit baseline() - until then spawn() restores the first-spawn look."""
+    p = make(1)
+    a = p.spawn()                           # baseline: scale 1
+    p.free(a)
+    a.scale = 3.0                           # reconfigured on the free slot ...
+    assert p.spawn().scale == 1.0           # ... but not re-snapped: back to the first look
+    p.free(a)
+    a.scale = 3.0
+    p.baseline()                            # now THIS is the fresh look
+    assert p.spawn().scale == 3.0
 
 
 def test_count_always_equals_the_alive_bits():
