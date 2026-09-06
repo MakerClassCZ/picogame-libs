@@ -311,10 +311,57 @@ def _load_first(f):
     i = 0
     while i < len(text) and text[i] in " \t\r\n":
         i += 1
-    val, end = json.JSONDecoder().raw_decode(text, i)
+    if hasattr(json, "JSONDecoder"):              # CPython: the stdlib knows where a value ends
+        val, end = json.JSONDecoder().raw_decode(text, i)
+    else:                                         # MicroPython (playground/sim): scan the value
+        end = _value_end(text, i)
+        val = json.loads(text[i:end])
     used = len(text[:end].encode("utf-8"))
     f.seek(start + used + 1)                      # +1 = the lookahead byte CP would have eaten
     return val
+
+
+def _value_end(text, i):
+    """Index just past the JSON value starting at text[i] (string-aware, no allocation of a tree)."""
+    c = text[i]
+    if c in "{[":
+        depth = 0
+        instr = False
+        esc = False
+        j = i
+        while j < len(text):
+            ch = text[j]
+            if instr:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    instr = False
+            elif ch == '"':
+                instr = True
+            elif ch in "{[":
+                depth += 1
+            elif ch in "}]":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+            j += 1
+        raise ValueError("unterminated JSON value")
+    if c == '"':
+        j = i + 1
+        while j < len(text):
+            if text[j] == "\\":
+                j += 2
+                continue
+            if text[j] == '"':
+                return j + 1
+            j += 1
+        raise ValueError("unterminated JSON string")
+    j = i
+    while j < len(text) and text[j] not in ",]} \t\r\n":
+        j += 1
+    return j
 
 
 def _ws(f):
