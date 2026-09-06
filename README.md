@@ -47,8 +47,8 @@ the engine's docstrings; source in [`stubs/`](stubs/)). Walkthrough: https://pic
 | `picogame_usbkbd` | USB HID **keyboard** as a `Buttons` source (wired or 2.4 GHz dongle; auto-attached, disable with `PICOGAME_KBD = 0`). Arrows/WASD = D-pad, Z/Space = A, X = B, C = X, V = Y, Q/E = L1/R1, Enter = START, Esc = SELECT; remap via `PICOGAME_USBKBD`. Combo dongles with a dead boot interface: pin the live channel with `PICOGAME_USBKBD_EP = "iface:endpoint"` (`usbkbd_probe.py` from the [picogame repo](https://github.com/MakerClassCZ/picogame)'s `tools/` prints the exact line). |
 | `picogame_i2cpad` | GENERIC I2C gamepads / button boards as a `Buttons` source - recipes + presets (e.g. Pimoroni QwSTPad), so an add-on pad needs config, not code. |
 | `picogame_clock` | `Clock(fps)` - frame-rate cap + `dt`. `FixedStep` - fixed-timestep accumulator for deterministic physics. |
-| `picogame_scene` | Declarative scene loader: `load()` / `load_bank()` build a ready `Scene` from a baked SCENE dict. `View`. |
-| `picogame_scenebake` | Bake an editor scene JSON into that SCENE dict **on the device**, so a level can be edited and re-run with no `scene_build.py` pass. Entry point is `picogame_scene.load_json(pg, path)`. Colour-tileset levels; PNG art still needs the desktop baker. |
+| `picogame_scene` | Declarative scene loader: `Game(pg, "game.json")` streams a whole project's levels (or imports a baked bank + `level_<name>` modules) and `load(name)` builds each `View`; `load()` / `load_bank()` for baked SCENE dicts; `.pal8` sidecar art read straight into bitmaps. |
+| `picogame_scenebake` | Bake `game.json` (bank + levels, streamed one level at a time) or a standalone scene JSON **on the device**, so a level can be edited and re-run with no host pass; also the `.pal8` sidecar codec and the streaming walker launchers use. PNG art comes from `<name>.pal8` sidecars written by the editor or `scene_build.py art`. |
 
 ## Text & UI
 | Module | Provides |
@@ -87,6 +87,7 @@ the engine's docstrings; source in [`stubs/`](stubs/)). Walkthrough: https://pic
 | `picogame_tiles` | `TileFlags` - per-tile metadata bitfield keyed by tile index (solid / hazard / ladder ...); turns tilemap collision into a flag lookup. |
 | `picogame_seq` | `Seq` - write timed/sequenced logic as generators (cutscenes, "do X over N frames", staged AI). `wait`, `over`, `move_over`. |
 | `picogame_script` | `Director` - story scripts as generators on top of `Seq`: `text`/`ask` dialog (a zero-RAM `SceneBox`), `fade_in`/`fade_out`, `wait`, a script registry your zones can name (`{"script": "intro"}`), and event flags for "already happened". One `tick()` per frame; nothing blocks. |
+| `picogame_story` | `Story` - runs a `game.json`'s story DATA (zone `say`/`ask`/`goto`, per-level `effects`) and your `story.py` scripts through the `Director`: zones start on entry (edge-latched), flags replay the level's effects, `goto` travels between `Game` levels. Nothing generated, nothing compiled. |
 
 ## Numbers
 | Module | Provides |

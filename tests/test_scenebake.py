@@ -28,8 +28,11 @@ def _golden(name):
 
 def _norm(o):
     """Tuples and lists mean the same thing here (JSON gives lists, the CLI writes tuples);
-    everything else must match exactly, bytes included."""
+    everything else must match exactly, bytes included. PAL8 pixel data may be hex text (older
+    goldens) or bytes (the baker today) - both spell the same pixels."""
     if isinstance(o, (tuple, list)):
+        if len(o) == 7 and o[0] == "pal8" and isinstance(o[1], str):
+            o = (o[0], bytes.fromhex(o[1])) + tuple(o[2:])
         return [_norm(x) for x in o]
     if isinstance(o, dict):
         return {k: _norm(v) for k, v in sorted(o.items())}
@@ -55,15 +58,28 @@ def test_colours_are_wire_order():
     assert picogame_scenebake._w565((255, 255, 255)) == 0xFFFF
 
 
-def test_png_backed_assets_are_declined_not_mangled():
+def test_png_backed_assets_point_at_their_pal8_sidecar():
+    # No PIL on the device: a PNG asset bakes to a 'pal8f' reference to <stem>.pal8 next to the
+    # JSON, which the loader reads (or fails loudly on when the sidecar is missing).
     for kind in ("sprite", "bitmap", "tileset"):
-        scene = {"size": [320, 240], "assets": {"a": {"type": kind, "src": "x.png", "fw": 8, "fh": 8}},
-                 "layers": []}
-        try:
-            picogame_scenebake.bake(scene)
-        except NotImplementedError:
-            continue
-        raise AssertionError("%s asset should raise NotImplementedError (needs the desktop CLI)" % kind)
+        scene = {"size": [320, 240], "layers": [],
+                 "assets": {"a": {"type": kind, "src": "art/x.png", "frame": [8, 8], "frames": 2}}}
+        fmt, path, fw, fh, frames, transp, pal = picogame_scenebake.bake(scene, "/game")["assets"]["a"]
+        assert (fmt, path, fw, fh, frames) == ("pal8f", "/game/art/x.pal8", 8, 8, 2), (kind, path)
+
+
+def test_rows_and_grid_forms_bake_identically():
+    import copy
+    with open(os.path.join(FIX, "quest_game.json")) as f:
+        game = json.load(f)
+    lv = game["levels"][0]
+    legend = game["assets"]["tiles"]["legend"]
+    as_grid = copy.deepcopy(lv)
+    tm = [l for l in as_grid["layers"] if l["kind"] == "tilemap"][0]
+    tm["grid"] = [[legend.get(ch, 0) for ch in row] for row in tm.pop("rows")]
+    a = picogame_scenebake.bake_level(lv, game["size"], game["assets"])
+    b = picogame_scenebake.bake_level(as_grid, game["size"], game["assets"])
+    assert _norm(a) == _norm(b)
 
 
 def test_unknown_asset_type_is_an_error():
