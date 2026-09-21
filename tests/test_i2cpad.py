@@ -250,3 +250,37 @@ def test_attach_raises_when_recovery_does_not_help():
         assert len(calls) == 1
     finally:
         P._recover = orig
+
+
+class FakeSeesawStick(FakeI2C):
+    """gamepadqt: GPIO bulk read (4 bytes, idle = all pulled up) plus seesaw ADC reads per pin."""
+
+    def __init__(self):
+        super().__init__(rlen=4)
+        self.state = 0xFFFFFFFF
+        self.adc = {14: 507, 15: 501}
+
+    def writeto_then_readfrom(self, addr, out, buf):
+        if bytes(out[:1]) == b"\x09":
+            v = self.adc[out[1] - 0x07]
+            buf[0], buf[1] = v >> 8, v & 0xFF
+        else:
+            self.readfrom_into(addr, buf)
+
+
+def test_gamepadqt_stick_directions_match_the_physical_stick():
+    # Checked on a real PID 5743 (2026-09-21): pushing the stick RIGHT drives pin 14 to 0, so the
+    # horizontal axis reads LOW toward right (Adafruit's example flips it with 1023 - x). The
+    # vertical axis (pin 15 low = UP) was already right on the hardware.
+    i2c = FakeSeesawStick()
+    pad = P.I2CPad(P.PRESETS["gamepadqt"], i2c)
+    assert pad.read() == 0                            # centre measured at attach
+    i2c.adc[14] = 0
+    assert pad.read() == I.RIGHT
+    i2c.adc[14] = 1023
+    assert pad.read() == I.LEFT
+    i2c.adc[14] = 507
+    i2c.adc[15] = 0
+    assert pad.read() == I.UP
+    i2c.adc[15] = 1023
+    assert pad.read() == I.DOWN
