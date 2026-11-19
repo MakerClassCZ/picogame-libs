@@ -1,0 +1,1 @@
+../../picogame_palette.py

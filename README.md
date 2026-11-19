@@ -17,6 +17,9 @@ in `/lib`). `ExtraFont`'s BDF subsets ship in [`fonts/`](fonts/) - copy them to 
 The game's own `code.py` and its assets go in the CIRCUITPY root.
 The unit suite runs on desktop CPython: `python3 tests/run_tests.py`.
 
+A board whose CIRCUITPY drive is too small for the library can freeze a core set into its
+firmware instead: [`frozen/core/`](frozen/core/).
+
 > The `stage`/`ugame` compatibility shim (run unmodified python-ugame games on picogame) lives in its
 > own repo, [**picogame-stage**](https://github.com/MakerClassCZ/picogame-stage).
 
