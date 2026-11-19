@@ -44,6 +44,7 @@ PRESETS = {
 }
 PRESETS["pybadge"] = PRESETS["lis3dh"]
 PRESETS["pygamer"] = PRESETS["lis3dh"]
+PRESETS["retro_arcade"] = dict(PRESETS["lis3dh"], invy=True)
 
 
 def _bus():
