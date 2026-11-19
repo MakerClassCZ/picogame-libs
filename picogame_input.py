@@ -63,12 +63,18 @@ THUMBY_COLOR = (                              # D-pad + A/B + two bumpers (->X/Y
     ("BUTTON_A", A), ("BUTTON_B", B),
     ("BUTTON_BUMPER_LEFT", X), ("BUTTON_BUMPER_RIGHT", Y), ("BUTTON_MENU", START),
 )
+RETRO_ARCADE = (                              # D-pad + A/B + menu (->START)
+    ("BUTTON_UP", UP), ("BUTTON_DOWN", DOWN), ("BUTTON_LEFT", LEFT), ("BUTTON_RIGHT", RIGHT),
+    ("BUTTON_A", A), ("BUTTON_B", B),
+    ("BUTTON_MENU", START),
+)
 PROFILES = {                                  # add new boards here, keyed by board.board_id
     "pajenicko_picopad_game": PICOPAD,
     "pimoroni_picosystem": PICOPAD,           # exposes the same board.SW_* names as the PicoPad
     "ugame22": UGAME,
     "deshipu_ugame_s3": UGAME,
     "tinycircuits_thumby_color": THUMBY_COLOR,
+    "elecfreaks_retro_arcade": RETRO_ARCADE,
     # VIDI X (vidi_x): the D-pad is an analog ladder -- board.BTN_L_R / BTN_UP_DOWN are one ADC pin
     # per axis, which the digital (pin -> button) model can't decode -> no built-in profile.
 }
